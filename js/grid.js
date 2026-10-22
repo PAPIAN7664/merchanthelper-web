@@ -65,7 +65,7 @@
     }
     const comps = new Map();
     for (let i = 0; i < val.length; i++) if (occ[i]) { const k = find(i), c = i % ncol, r = (i / ncol) | 0; const o = comps.get(k) || { c0: c, c1: c, r0: r, r1: r, n: 0 }; o.c0 = Math.min(o.c0, c); o.c1 = Math.max(o.c1, c); o.r0 = Math.min(o.r0, r); o.r1 = Math.max(o.r1, r); o.n++; comps.set(k, o); }
-    const cargos = [...comps.values()].map(o => ({ c: o.c0, r: o.r0, w: o.c1 - o.c0 + 1, h: o.r1 - o.r0 + 1, rect: o.n === (o.c1 - o.c0 + 1) * (o.r1 - o.r0 + 1) }));
+    const cargos = [...comps.values()].map(o => ({ c: o.c0, r: o.r0, w: o.c1 - o.c0 + 1, h: o.r1 - o.r0 + 1, rect: o.n === (o.c1 - o.c0 + 1) * (o.r1 - o.r0 + 1), edge: o.r0 === 0 || o.r1 === nrow - 1 }));
     const dark = [], text = [];
     for (let r = 0; r < nrow; r++) for (let c = 0; c < ncol; c++) { dark.push(fill(g, w, X(c) + 3, X(c + 1) - 3, Y(r) + 3, Y(r + 1) - 3, 13) ); text.push(fill(g, w, X(c) + 3, X(c + 1) - 3, Y(r) + 3, Y(r + 1) - 3, 150)); }
     for (let i = 0; i < dark.length; i++) dark[i] = 1 - dark[i];
@@ -131,8 +131,10 @@
       // 3) 화물 투표 (가려진 칸이 낀 화물은 이번 프레임은 건너뜀)
       for (const k of det.cargos) {
         let hidden = false; for (let rr = k.r; rr < k.r + k.h && !hidden; rr++) for (let cc = k.c; cc < k.c + k.w; cc++) if (skip.has(cc + "," + rr)) { hidden = true; break; }
-        if (hidden) continue;
-        const key = `${k.r + off},${k.c},${k.w},${k.h}`; const o = this.obs.get(key) || { c: k.c, r: k.r + off, w: k.w, h: k.h, n: 0 }; o.n++; o.t = t; this.obs.set(key, o);
+        // 직사각형이 아닌 덩어리(테두리 선을 놓쳐 이웃과 붙음)는 크기를 믿을 수 없어 버림
+        if (hidden || k.rect === false) continue;
+        // 보이는 범위 맨 위/아래 줄에 걸친 화물은 화면 밖으로 잘렸을 수 있음(스크롤 중 3×2가 3×1로 보이는 등) → 따로 셈
+        const key = `${k.r + off},${k.c},${k.w},${k.h}`; const o = this.obs.get(key) || { c: k.c, r: k.r + off, w: k.w, h: k.h, n: 0, ni: 0 }; o.n++; if (!k.edge) o.ni++; o.t = t; this.obs.set(key, o);
       }
       this._list = null;
       if (hoverCell) { const [cc, rr] = hoverCell; const hit = this.list().find(k => cc >= k.c && cc < k.c + k.w && rr + off >= k.r && rr + off < k.r + k.h); this.hover = hit ? hit.key : `${rr + off},${cc}`; this.hoverT = t; det.hoverCell = [cc, rr]; }
@@ -152,7 +154,7 @@
       if (this._list) return this._list;
       const out = [], taken = (k) => out.some(o => o.c < k.c + k.w && k.c < o.c + o.w && o.r < k.r + k.h && k.r < o.r + o.h);
       for (const m of this.manual.values()) out.push(Object.assign({ manual: true }, m));
-      const allOcc = o => { for (let r = o.r; r < o.r + o.h; r++) for (let c = o.c; c < o.c + o.w; c++) { const x = this.cells.get(r + "," + c); if (!x || x.s <= 0) return false; } return true; }, cand = [...this.obs.values()].filter(o => o.n >= 4 && allOcc(o)).sort((a, b) => b.n - a.n || b.w * b.h - a.w * a.h);
+      const allOcc = o => { for (let r = o.r; r < o.r + o.h; r++) for (let c = o.c; c < o.c + o.w; c++) { const x = this.cells.get(r + "," + c); if (!x || x.s <= 0) return false; } return true; }, cand = [...this.obs.values()].filter(o => o.n >= 4 && allOcc(o)).sort((a, b) => (b.ni >= 2) - (a.ni >= 2) || b.n - a.n || b.w * b.h - a.w * a.h);
       for (const o of cand) if (!taken(o)) out.push(Object.assign({}, o));
       out.forEach(o => { o.key = `${o.r},${o.c}`; o.item = this.items.get(o.key) || null;
         if (!o.item) for (const [k, it] of this.items) { const [r, c] = k.split(",").map(Number); if (r >= o.r && r < o.r + o.h && c >= o.c && c < o.c + o.w) { o.item = it; break; } } });
