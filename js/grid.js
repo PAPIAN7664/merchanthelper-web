@@ -111,16 +111,16 @@
       }
       if (lo > hi) off = est;
       // 화면이 바뀜(다른 상인/판매 화면): 기록과 크게 어긋나는 프레임이 이어지면 초기화
-      if ((bestN >= 10 && bestMis / bestN > 0.4) || (this._sn >= 10 && this._sm / this._sn > 0.4 && (est === still || bestN < this._sn * 0.5))) { this.bad = (this.bad || 0) + 1; if (this.bad >= 3) { if (!this.manual.size && !this.items.size) { this.reset(); return this.push(det, t, g); } this.changedScreen = true; } this.prev = det; return det; }
+      if ((bestN >= 10 && bestMis / bestN > 0.4) || (this._sn >= 10 && this._sm / this._sn > 0.4 && (est === still || bestN < this._sn * 0.5))) { this.bad = (this.bad || 0) + 1; if (this.bad >= 3) { this.reset(); this.changedScreen = true; return this.push(det, t, g); } this.prev = det; return det; }
       // 칸이 다 차 있어도 화물 나뉨(크기·위치)이 기록과 많이 다르면 다른 화면
       { let same = 0, diff = 0; for (const k of det.cargos) { if (k.rect === false || k.edge) continue; const r = k.r + off; let hit = false, clash = false; for (const q of this.obs.values()) { if (q.n < 4) continue; if (q.c === k.c && q.r === r && q.w === k.w && q.h === k.h) hit = true; else if (q.c < k.c + k.w && k.c < q.c + q.w && q.r < r + k.h && r < q.r + q.h) clash = true; } if (hit) same++; else if (clash) diff++; }
-        if (diff >= 5 && diff > same) { this.bad = (this.bad || 0) + 1; if (this.bad >= 3) { if (!this.manual.size && !this.items.size) { this.reset(); return this.push(det, t, g); } this.changedScreen = true; } this.prev = det; return det; } }
+        if (diff >= 5 && diff > same) { this.bad = (this.bad || 0) + 1; if (this.bad >= 3) { this.reset(); this.changedScreen = true; return this.push(det, t, g); } this.prev = det; return det; } }
       this.bad = 0; this.changedScreen = false;
       this.scroll += (off - est) * det.py; this.lastOff = off;
       det.rowOff = off; this.prev = det;
       // 1) 바뀐 칸 찾기: 전에 화물이던 칸이 지금 어두움 → 툴팁에 가려졌거나 드래그로 비었음
       const changed = [], ncol = det.ncol; let txt = 0;
-      for (let r = 0; r < det.nrow; r++) for (let c = 0; c < ncol; c++) { const i = r * ncol + c, key = (r + off) + "," + c; if (!det.occ[i] && this.stableOcc(key)) { changed.push([c, r]); txt += det.text[i]; } }
+      for (let r = 0; r < det.nrow; r++) for (let c = 0; c < ncol; c++) { const i = r * ncol + c, key = (r + off) + "," + c; if (!det.occ[i] && this.stableOcc(key)) { const o = this.cells.get(key); if (o.dk === undefined) o.dk = t; if (t - o.dk > 1.5 && det.text[i] < 0.015) continue; /* 1.5초 넘게 비어 있으면 툴팁·드래그가 아니라 정말 빈 칸(구매됨) */ changed.push([c, r]); txt += det.text[i]; } else { const o = this.cells.get(key); if (o) o.dk = undefined; } }
       let hoverCell = null, dragged = null;
       if (changed.length) {
         if (txt / changed.length > 0.015 && g) hoverCell = this.cursorCell(det, changed, g);
@@ -162,7 +162,8 @@
       const allOcc = o => { for (let r = o.r; r < o.r + o.h; r++) for (let c = o.c; c < o.c + o.w; c++) { const x = this.cells.get(r + "," + c); if (!x || x.s <= 0) return false; } return true; }, cand = [...this.obs.values()].filter(o => o.n >= 4 && allOcc(o)).sort((a, b) => (b.ni >= 2) - (a.ni >= 2) || b.n - a.n || b.w * b.h - a.w * a.h);
       for (const o of cand) if (!taken(o)) out.push(Object.assign({}, o));
       out.forEach(o => { o.key = `${o.r},${o.c}`; o.item = this.items.get(o.key) || null;
-        if (!o.item) for (const [k, it] of this.items) { const [r, c] = k.split(",").map(Number); if (r >= o.r && r < o.r + o.h && c >= o.c && c < o.c + o.w) { o.item = it; break; } } });
+        // 이름표는 같은 자리 + 같은 가로×세로 화물에만 (크기가 다르면 다른 화물)
+        if (o.item && o.item.w && (o.item.w !== o.w || o.item.h !== o.h)) o.item = null; });
       out.sort((a, b) => a.r - b.r || a.c - b.c);
       return (this._list = out);
     }

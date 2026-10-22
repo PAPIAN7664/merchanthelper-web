@@ -318,9 +318,12 @@
     // 소리 결과 → 화물 칸. 화물 크기와 칸 수가 맞는 후보만 남김
     function onResult(cands, tgt) {
       if (!tgt) { info("소리는 맞혔지만 어느 화물인지 몰라서 격자에 넣지 않았습니다. 화물에 마우스를 올린 채로 드래그하거나, 격자에서 화물을 눌러 지정하세요."); return; }
-      let pool = tgt.cellOnly ? cands : MHGrid.fitCands(cands, tgt.w, tgt.h); const fit = pool.some(c => !c.sizeUnknown); if (!pool.length) pool = cands;
+      if (tgt.cellOnly) { info("소리는 맞혔지만 화물 크기를 몰라 격자에 넣지 않았습니다. 화물에 마우스를 올린 채로 드래그하거나, 격자에서 화물을 눌러 지정하세요."); return; }
+      // 화물 가로×세로와 정확히 같은 크기의 물품만. 맞는 게 없으면 넣지 않음 (다른 크기 물품을 붙이지 않음)
+      let pool = MHGrid.fitCands(cands, tgt.w, tgt.h).filter(c => !c.sizeUnknown); const fit = true;
+      if (!pool.length) { info(`소리 결과에 ${tgt.w}×${tgt.h} 크기 물품이 없어 격자에 넣지 않았습니다. (다른 화물 소리였을 수 있음)`); return; }
       const total = pool.reduce((a, c) => a + Math.max(1, c.score), 0), top = pool[0];
-      const item = { name: top.name, ko: koName(top.name), quality: top.quality, price: top.reference_value_text || top.reference_value || "-", conf: Math.round(100 * Math.max(1, top.score) / total), image: top.image, n: pool.length, red: pool.some(c => c.quality === "红色"), sure: !!tgt.dragged || !!tgt.manualPick, fit, sizeUnknown: !!top.sizeUnknown, all: pool.slice(0, 5).map(c => koName(c.name)) };
+      const item = { w: tgt.w, h: tgt.h, name: top.name, ko: koName(top.name), quality: top.quality, price: top.reference_value_text || top.reference_value || "-", conf: Math.round(100 * Math.max(1, top.score) / total), image: top.image, n: pool.length, red: pool.some(c => c.quality === "红色"), sure: !!tgt.dragged || !!tgt.manualPick, fit, sizeUnknown: !!top.sizeUnknown, all: pool.slice(0, 5).map(c => koName(c.name)) };
       tracker.assign(tgt.key, item); if (tgt.manualPick) pick = null; render();
       info(`${tgt.w}×${tgt.h} 화물 → ${item.ko} ${item.conf}%${fit ? "" : " (가로×세로가 맞는 후보가 없어 전체 후보 기준)"}`);
     }
