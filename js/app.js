@@ -321,7 +321,7 @@
       const slots = tgt.cellOnly ? 0 : tgt.w * tgt.h;
       let pool = slots ? cands.filter(c => Number(c.slot) === slots) : cands; const fit = pool.length > 0; if (!fit) pool = cands;
       const total = pool.reduce((a, c) => a + Math.max(1, c.score), 0), top = pool[0];
-      const item = { name: top.name, ko: koName(top.name), quality: top.quality, price: top.reference_value_text || top.reference_value || "-", conf: Math.round(100 * Math.max(1, top.score) / total), n: pool.length, red: pool.some(c => c.quality === "红色"), sure: !!tgt.dragged || !!tgt.manualPick, fit, all: pool.slice(0, 5).map(c => koName(c.name)) };
+      const item = { name: top.name, ko: koName(top.name), quality: top.quality, price: top.reference_value_text || top.reference_value || "-", conf: Math.round(100 * Math.max(1, top.score) / total), image: top.image, n: pool.length, red: pool.some(c => c.quality === "红色"), sure: !!tgt.dragged || !!tgt.manualPick, fit, all: pool.slice(0, 5).map(c => koName(c.name)) };
       tracker.assign(tgt.key, item); if (tgt.manualPick) pick = null; render();
       info(`${tgt.w}×${tgt.h} 화물 → ${item.ko} ${item.conf}%${fit ? "" : " (크기가 맞는 후보가 없어 전체 후보 기준)"}`);
     }
@@ -344,9 +344,13 @@
         const it = k.item;
         if (it) { const col = QUALITY_COLOR[it.quality] || "#8a93a3"; el.style.background = col + "33"; el.style.borderColor = col; if (it.red) el.classList.add("red");
           el.title = `${it.ko} (${ko(QUALITY_KO, it.quality)})\n참고 가치 ${it.price}\n후보 ${it.n}개: ${it.all.join(", ")}`;
-          el.innerHTML = `<div class="nm"></div><div class="pr"></div><div class="pc"></div>`;
-          el.querySelector(".nm").textContent = it.ko; el.querySelector(".pr").textContent = priceText(it.price); el.querySelector(".pc").textContent = (it.n === 1 ? "100%" : it.conf + "%") + (it.sure ? " ✓" : "");
-          el.querySelector(".pc").style.color = col; }
+          const pct = (it.n === 1 ? "100%" : it.conf + "%") + (it.sure ? " ✓" : "");
+          el.innerHTML = `<img class="gi" alt=""><span class="pr"></span><span class="pc"></span><div class="nm"></div>`;
+          const im = el.querySelector("img"); im.src = "assets/images/" + encodeURIComponent(it.image || ""); im.onerror = () => { im.replaceWith(Object.assign(document.createElement("span"), { className: "q", textContent: "?" })); };
+          if (!(it.sure || it.n === 1)) el.classList.add("dim");
+          if (k.w * k.h === 1) el.classList.add("one");
+          el.querySelector(".nm").textContent = it.ko; el.querySelector(".pr").textContent = priceText(it.price); el.querySelector(".pc").textContent = pct; el.querySelector(".pc").style.background = col; }
+        else { el.title = "아직 모름 — 드래그하면 소리로 맞힙니다"; el.innerHTML = `<span class="q">?</span>`; }
         const sz = document.createElement("span"); sz.className = "sz"; sz.textContent = `${k.w}×${k.h}`; el.appendChild(sz);
         g.appendChild(el);
       }
