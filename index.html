@@ -36,16 +36,23 @@
   </div>
 </section>
 
-<section class="panel" id="stPanel">
-  <div class="res-head"><h2>사운드 테스트 (창고에서)</h2><span class="small muted">상인 화면 없이 소리가 제대로 인식되는지 단계별로 확인합니다. 격자 인식은 필요 없습니다.</span></div>
+<section class="panel testpanel" id="stPanel">
+  <div class="res-head"><h2>🧪 테스트 란</h2><label class="tmtoggle"><input type="checkbox" id="optTestMode"> 테스트 모드 켜기</label>
+    <span class="small muted">상인 화면·화물 격자와 완전히 따로 동작합니다. 여기서 난 소리는 격자 화물에 붙지 않고, 격자 기록·모은 점수·크기 필터를 바꾸지 않습니다.</span></div>
+  <div id="stBody" hidden>
+  <h3>사운드 테스트 (창고에서)</h3>
   <div class="row"><button id="btnStStart" class="primary">사운드 테스트 시작</button><button id="btnStStop">멈추기</button>
     <input id="stItem" list="stItems" placeholder="(선택) 옮긴 아이템 이름" autocomplete="off"><datalist id="stItems"></datalist></div>
   <ol id="stSteps" class="ststeps"></ol>
   <div id="stMatch" class="stmatch"></div>
   <div id="stSummary" class="stsum"></div>
+  <h3>최근 소리 기록 <span class="small muted">(모든 크기·방향 후보, 크기 필터 없음)</span></h3>
+  <div id="stLog" class="stlogs"></div>
   <div class="row"><textarea id="stDiag" class="stdiag" readonly rows="7"></textarea></div>
   <div class="row small"><button id="btnStCopy">진단 글 복사</button><span class="muted">잘 안 되면 이 글을 복사해서 방송인에게 보내 주세요.</span></div>
+  </div>
 </section>
+
 <section class="panel" id="gridGuide">
   <h2>화물 격자 쓰는 법</h2>
   <ol class="steps">

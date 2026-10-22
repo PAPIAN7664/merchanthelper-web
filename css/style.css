@@ -83,3 +83,7 @@ body.pip .gridmap .cargo .nm{font-size:8px;line-height:11px}
 .stsum{font-weight:bold;padding:8px;border-radius:6px;margin:6px 0}.stsum.ok{background:#12351f}.stsum.fail{background:#3a1616}.stsum.warn{background:#3a3014}
 .stdiag{width:100%;font-family:monospace;font-size:12px;background:#11151d;color:#cfd6e4;border:1px solid #333a4a}
 #stItem{min-width:220px}
+
+.testpanel{border:2px dashed #d29922;background:#1d1a12}.testpanel h2{color:#ffcf6b}.testpanel h3{font-size:14px;margin:10px 0 4px;color:#ffcf6b}
+.tmtoggle{font-weight:bold;color:#ffcf6b;white-space:nowrap}.testpanel.open{border-style:solid}
+.stlogs{display:flex;flex-direction:column;gap:6px;max-height:520px;overflow:auto}.stlog{border:1px solid #3a3424;border-radius:6px;padding:6px}.stlh{font-size:13px;margin-bottom:4px}

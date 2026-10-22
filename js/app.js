@@ -546,7 +546,7 @@
       curThr = thr; const isOver = pk >= thr; hist.push(isOver ? 1 : 0); if (hist.length > 25) hist.shift(); if (isOver) over++;
       const overFrac = hist.reduce((a, b) => a + b, 0) / hist.length, onset = pk >= before * S.ratio;
       if (!T2) T2 = now;
-      if (isOver && onset && now - lastHit > 0.6) { lastHit = now; sMatch = now + 0.45; HIT.d = d; HIT.thr = dB(thr); }
+      if (isOver && onset && now - lastHit > 0.6) { lastHit = now; sMatch = now + 0.45; HIT.d = d; HIT.thr = dB(thr); HIT.last = d; }
       else if (!isOver && onset && pk >= thr / 4 && d > -75) near = Math.max(near, d - dB(thr));
       const tdb = f0(dB(thr));
       if (HIT.d !== undefined) set(2, "ok", `소리 감지됨 · ${f0(HIT.d)} dB (기준선 ${f0(HIT.thr)} dB) · 감도 ${sens}/7 · 증폭 ×${GAINS[gainIdx]}`, hist.length >= 25 && overFrac > 0.6 ? "※ 배경 소리가 계속 기준선 근처입니다. 음악·보이스챗·TTS·마이크 소리를 줄이세요." : "");
@@ -555,7 +555,7 @@
       else set(2, "run", `창고(stash)에서 아무 아이템이나 마우스로 집어 다른 칸에 옮겨 보세요… (지금 ${f0(d)} dB, 기준선 ${tdb} dB${near ? `, 가까웠던 소리 ${near.toFixed(0)} dB` : ""})`);
       // 4. 매칭
       if (sMatch && now >= sMatch && !matching) { sMatch = null; matching = true; const x = last(1.2);
-        match(x, sr, MH.backgroundLevel(x, sr), true).then(r => { tries.push({ rows: (r.rows && r.rows.length ? r.rows : r.weak || []).slice(0, 5), strong: !!(r.rows && r.rows.length), at: new Date() }); judge(); }).catch(e => set(3, "fail", "인식 오류: " + e.message)).finally(() => { matching = false; render(); }); }
+        match(x, sr, MH.backgroundLevel(x, sr), true).then(r => { tries.push({ rows: (r.rows && r.rows.length ? r.rows : r.weak || []).slice(0, 5), strong: !!(r.rows && r.rows.length), at: new Date(), db: HIT.last }); if (tries.length > 30) tries.shift(); judge(); }).catch(e => set(3, "fail", "인식 오류: " + e.message)).finally(() => { matching = false; render(); }); }
       if (HIT.d === undefined && !tries.length) set(3, "wait", "3단계를 기다리는 중");
       render();
     }
@@ -580,6 +580,13 @@
           el.innerHTML = `<div class="stgh"></div><div class="stimgs"></div>`; el.querySelector(".stgh").textContent = `${i + 1}위 · ${sndName(r.key)} · ${r.score}점${i === rk ? " ← 고른 아이템" : ""}`;
           for (const c of cands) { const im = document.createElement("img"); im.src = "assets/images/" + encodeURIComponent(c.image); im.title = koName(c.name); im.style.borderColor = QUALITY_COLOR[c.quality] || "#8a93a3"; im.onerror = () => { im.style.visibility = "hidden"; }; el.querySelector(".stimgs").appendChild(im); }
           box.appendChild(el); }); }
+      const lg = $("stLog"); lg.innerHTML = tries.length ? "" : '<div class="muted">아직 감지된 소리 없음 — 창고에서 아이템을 옮겨 보세요.</div>';
+      for (const t of tries.slice().reverse().slice(0, 12)) { const cands = engine.resolve(t.rows).slice(0, 8), tot = cands.reduce((a, c) => a + Math.max(1, c.score), 0) || 1, row = document.createElement("div"); row.className = "stlog";
+        row.innerHTML = '<div class="stlh"></div><div class="recentcards"></div>'; row.querySelector(".stlh").textContent = `${t.at.toLocaleTimeString("ko-KR", { hour12: false })} · ${f0(t.db === undefined ? -99 : t.db)} dB · ${t.rows[0] ? sndName(t.rows[0].key) + " " + t.rows[0].score + "점" : "맞는 소리 없음"}${t.strong ? "" : " (약함)"} · 모든 크기 후보 ${engine.resolve(t.rows).length}개`;
+        for (const c of cands) { const col = QUALITY_COLOR[c.quality] || "#8a93a3", z = MHGrid.itemSize(c), el = document.createElement("div"); el.className = "rcard"; el.style.borderColor = col;
+          el.innerHTML = '<img alt=""><div class="rn"></div><div class="rm"></div><div class="rs"></div>'; const im = el.querySelector("img"); im.src = "assets/images/" + encodeURIComponent(c.image); im.onerror = () => { im.style.visibility = "hidden"; };
+          el.querySelector(".rn").textContent = koName(c.name); el.querySelector(".rn").style.color = col; el.querySelector(".rm").textContent = `${ko(QUALITY_KO, c.quality)} · ${z ? z[0] + "×" + z[1] : c.slot + "칸"}`; el.querySelector(".rs").textContent = `${c.score}점 · ${Math.round(100 * Math.max(1, c.score) / tot)}%`; row.querySelector(".recentcards").appendChild(el); }
+        lg.appendChild(row); }
       const sts = STEPS.map((_, i) => (s[i] || {}).st), done = sts.every(x => x === "ok"), bad = sts.indexOf("fail");
       $("stSummary").className = "stsum " + (done ? "ok" : bad >= 0 ? "fail" : sts.includes("warn") ? "warn" : "");
       $("stSummary").textContent = done ? "✅ 통과: 소리 인식이 정상입니다. 상인 화면에서 화물을 드래그하면 됩니다." : bad >= 0 ? `❌ ${bad + 1}단계에서 막혔습니다 — 위 → 안내대로 고친 뒤 다시 해 보세요.` : on ? "진행 중…" : "「사운드 테스트 시작」을 누르세요.";
@@ -596,12 +603,14 @@
     }
     reset();
     const dl = $("stItems"); for (const i of db.items.concat(db.special_items)) { const o = document.createElement("option"); o.value = koName(i.name); dl.appendChild(o); }
-    $("btnStStart").onclick = () => start(); $("btnStStop").onclick = () => stop();
+    $("btnStStart").onclick = () => { setMode(true); start(); }; $("btnStStop").onclick = () => stop();
+    function setMode(v) { $("optTestMode").checked = v; $("stBody").hidden = !v; $("stPanel").classList.toggle("open", v); document.body.classList.toggle("testmode", v); if (!v) stop(); }
+    $("optTestMode").addEventListener("change", e => { setMode(e.target.checked); if (e.target.checked) start(); });
     $("stItem").addEventListener("change", () => { judge(); render(); });
     $("btnStCopy").onclick = async () => { const tx = diag(); try { await navigator.clipboard.writeText(tx); $("btnStCopy").textContent = "복사됨 ✔"; } catch (e) { $("stDiag").select(); document.execCommand("copy"); $("btnStCopy").textContent = "복사됨"; } setTimeout(() => { $("btnStCopy").textContent = "진단 글 복사"; }, 1500); };
-    document.querySelectorAll(".btnSoundTest").forEach(b => b.addEventListener("click", () => { try { window.focus(); } catch (e) {} start(); }));
+    document.querySelectorAll(".btnSoundTest").forEach(b => b.addEventListener("click", () => { try { window.focus(); } catch (e) {} setMode(true); start(); }));
     render();
-    return { get on() { return on; }, feed, start, stop, noAudio: () => { noAudioErr = true; }, state: () => ({ steps: STEPS.map((_, i) => s[i]), tries, diag: diag() }) };
+    return { get on() { return on; }, feed, start, setMode, stop, noAudio: () => { noAudioErr = true; }, state: () => ({ steps: STEPS.map((_, i) => s[i]), tries, diag: diag() }) };
   })();
 
   // 테스트용 훅 (콘솔): 원본 효과음을 오프라인으로 인식
