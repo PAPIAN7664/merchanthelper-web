@@ -100,12 +100,14 @@
     ctx.onstatechange = () => { drawMeter(); if (ctx && ctx.state === "suspended") keepAlive(); };
     at[0].addEventListener("ended", () => { setStatus("소리 공유가 끝났습니다. 다시 연결하세요."); detach(); });
     $("srcName").textContent = label; $("srcRate").textContent = sr + " Hz";
+    const vt = stream.getVideoTracks()[0]; if (vt && $("optGrid").checked) GRID.start(vt); else GRID.info(vt ? "「화면도 읽기」가 꺼져 있어 격자는 직접 지정만 됩니다." : "화면이 없는 소스라 격자는 직접 지정만 됩니다.");
     $("btnToggle").disabled = false; $("btnNow").disabled = false;
     setStatus("소리 소스 연결됨. 시작(F8)을 누르세요.");
   }
   function detach() {
     waiters.forEach(w => w.r()); waiters = [];
     if (active) setActive(false);
+    GRID.stop();
     try { stream && stream.getTracks().forEach(t => t.stop()); } catch (e) {}
     try { ctx && ctx.close(); } catch (e) {}
     ctx = stream = srcNode = procNode = sinkNode = null;
@@ -115,7 +117,8 @@
 
   $("btnDisplay").onclick = async () => {
     try {
-      const s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1, width: 320, height: 180 }, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false }, systemAudio: "include", selfBrowserSurface: "exclude", surfaceSwitching: "exclude" });
+      const wantGrid = $("optGrid").checked;
+      const s = await navigator.mediaDevices.getDisplayMedia({ video: wantGrid ? { frameRate: { ideal: 10, max: 15 }, width: { ideal: 2560 }, height: { ideal: 1440 } } : { frameRate: 1, width: 320, height: 180 }, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false }, systemAudio: "include", selfBrowserSurface: "exclude", surfaceSwitching: "exclude" });
       await attach(s, "시스템 소리 (화면 공유)");
     } catch (e) { setStatus("화면 공유 실패: " + e.message); }
   };
@@ -170,6 +173,7 @@
   const cmpKey = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] - b[i]; return 0; };
   async function handleTrigger(src) {
     if (busy || !active) return; busy = true; badge("busy", "인식 중…");
+    pendingTarget = GRID.targetNow();
     const t0 = performance.now();
     try {
       await sleep(SETTLE);
@@ -193,9 +197,11 @@
   }
 
   // ---------- 결과 표시 (ui.Panel) ----------
-  let allCands = [], lastSig = "", history = [];
+  let allCands = [], lastSig = "", history = [], pendingTarget = null;
   function showRows(rows, reason, trace) {
     const cands = engine.resolve(rows);
+    const tgt = pendingTarget; pendingTarget = null;
+    if (cands.length) GRID.onResult(cands, tgt);
     if (!cands.length && allCands.length) { setStatus(`이번에는 소리를 찾지 못해 이전 후보를 유지합니다. (${reason || "결과 없음"}) · ${trace}`); return; } // 원본의 '粘滞'
     setStatus((reason || (cands.length ? "" : "후보 없음")) + " · " + trace);
     const sig = JSON.stringify(cands.map(c => [c.name, c.score]));
@@ -275,6 +281,91 @@
     moveIn(w, "popup");
   };
 
+  // ---------- 화물 격자 (화면 프레임 → js/grid.js) ----------
+  const GRID = (() => {
+    const FPS = 6, tracker = new MHGrid.GridTracker();
+    let track = null, reader = null, video = null, timer = null, canvas = null, c2d = null, lastFrame = 0, running = false, found = false, pick = null, size = null, frames = 0, lastDet = null;
+    const now = () => performance.now() / 1000;
+    function info(t) { $("gridInfo").textContent = t; }
+    function ensureCanvas(w, h) { if (!canvas) { canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(w, h) : document.createElement("canvas"); c2d = canvas.getContext("2d", { willReadFrequently: true }); } if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; } }
+    let gray = null;
+    function process(src, W, H) {
+      if (!W || !H) return;
+      // 화물창은 화면 오른쪽 절반. 높이 720 기준으로 줄여서 처리 (해상도와 무관)
+      const sx = Math.floor(W / 2), sw = W - sx, dh = 720, dw = Math.round(sw * dh / H);
+      ensureCanvas(dw, dh); c2d.drawImage(src, sx, 0, sw, H, 0, 0, dw, dh);
+      const d = c2d.getImageData(0, 0, dw, dh).data; if (!gray || gray.length !== dw * dh) gray = new Uint8Array(dw * dh);
+      for (let i = 0, j = 0; i < gray.length; i++, j += 4) gray[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
+      const det = MHGrid.detect(gray, dw, dh); tracker.push(det, now(), gray); frames++; lastDet = det;
+      if (det && !found) { found = true; }
+      render();
+    }
+    async function start(vt) {
+      stop(); track = vt; running = true; found = false;
+      info("화면 읽는 중… 상인 화물창을 열어 주세요.");
+      if (typeof MediaStreamTrackProcessor !== "undefined") {
+        try { // 탭이 가려져도 프레임이 계속 들어오는 방식
+          reader = new MediaStreamTrackProcessor({ track: vt }).readable.getReader();
+          (async () => { while (running && reader) { const { value: f, done } = await reader.read(); if (done) break; try { const t = performance.now(); if (t - lastFrame >= 1000 / FPS) { lastFrame = t; process(f, f.displayWidth, f.displayHeight); } } catch (e) { console.warn(e); } finally { f.close(); } } })().catch(e => console.warn("프레임 읽기 종료", e));
+          return;
+        } catch (e) { reader = null; }
+      }
+      video = document.createElement("video"); video.muted = true; video.playsInline = true; video.srcObject = new MediaStream([vt]); video.play().catch(() => {});
+      timer = setInterval(() => { if (video.readyState >= 2) try { process(video, video.videoWidth, video.videoHeight); } catch (e) { console.warn(e); } }, 1000 / FPS);
+    }
+    function stop() { running = false; try { reader && reader.cancel(); } catch (e) {} reader = null; if (timer) clearInterval(timer); timer = null; if (video) { video.srcObject = null; video = null; } track = null; }
+    function targetNow() { if (pick) { const k = tracker.list().find(o => o.key === pick); if (k) return Object.assign({ manualPick: true }, k); } const t = tracker.target(now()); return t ? Object.assign({ dragged: tracker.drag === t.key && now() - tracker.dragT < 2.5 }, t) : null; }
+    // 소리 결과 → 화물 칸. 화물 크기와 칸 수가 맞는 후보만 남김
+    function onResult(cands, tgt) {
+      if (!tgt) { info("소리는 맞혔지만 어느 화물인지 몰라서 격자에 넣지 않았습니다. 화물에 마우스를 올린 채로 드래그하거나, 격자에서 화물을 눌러 지정하세요."); return; }
+      const slots = tgt.cellOnly ? 0 : tgt.w * tgt.h;
+      let pool = slots ? cands.filter(c => Number(c.slot) === slots) : cands; const fit = pool.length > 0; if (!fit) pool = cands;
+      const total = pool.reduce((a, c) => a + Math.max(1, c.score), 0), top = pool[0];
+      const item = { name: top.name, ko: koName(top.name), quality: top.quality, price: top.reference_value_text || top.reference_value || "-", conf: Math.round(100 * Math.max(1, top.score) / total), n: pool.length, red: pool.some(c => c.quality === "红色"), sure: !!tgt.dragged || !!tgt.manualPick, fit, all: pool.slice(0, 5).map(c => koName(c.name)) };
+      tracker.assign(tgt.key, item); if (tgt.manualPick) pick = null; render();
+      info(`${tgt.w}×${tgt.h} 화물 → ${item.ko} ${item.conf}%${fit ? "" : " (크기가 맞는 후보가 없어 전체 후보 기준)"}`);
+    }
+    function priceText(p) { const n = Number(String(p).replace(/[^\d]/g, "")); return n ? (n >= 10000 ? Math.round(n / 1000) / 10 + "만" : n.toLocaleString("ko-KR")) : String(p); }
+    let lastSig = "";
+    function render() {
+      const L = tracker.list(), [r0, r1raw] = tracker.rows(), ncol = tracker.ncol || 9, r1 = Math.max(r1raw, r0 + 5);
+      const tg = tracker.target(now()), tkey = tg ? tg.key : "";
+      const sig = JSON.stringify([L.map(k => [k.key, k.w, k.h, k.item && [k.item.name, k.item.conf, k.item.sure]]), r0, r1, ncol, tkey, pick, size]);
+      if (lastDet) info(`화물창 인식: ${lastDet.ncol}열 · 화물 ${L.length}개 · 기록된 줄 ${r1raw - r0 + 1}줄${tg ? ` · 대상 ${tg.c + 1}열 ${tg.r - r0 + 1}줄` : ""}`);
+      else if (running && frames > FPS * 2) info(`화면 읽는 중… 상인 화물창이 보이지 않습니다. (기록 ${L.length}개 유지)`);
+      if (sig === lastSig) return; lastSig = sig;
+      const box = $("gridMap"); box.innerHTML = "";
+      const g = document.createElement("div"); g.className = "g"; g.style.width = `calc(var(--cs) * ${ncol})`; g.style.height = `calc(var(--cs) * ${r1 - r0 + 1})`;
+      const pos = (el, c, r, w, h) => { el.style.left = `calc(var(--cs) * ${c})`; el.style.top = `calc(var(--cs) * ${r - r0})`; el.style.width = `calc(var(--cs) * ${w})`; el.style.height = `calc(var(--cs) * ${h})`; };
+      for (let r = r0; r <= r1; r++) for (let c = 0; c < ncol; c++) { const el = document.createElement("div"); el.className = "cell"; el.dataset.c = c; el.dataset.r = r; pos(el, c, r, 1, 1); g.appendChild(el); }
+      for (const k of L) {
+        const el = document.createElement("div"); el.className = "cargo" + (k.manual ? " manual" : "") + (k.key === tkey ? " tgt" : "") + (k.key === pick ? " pick" : "");
+        el.dataset.c = k.c; el.dataset.r = k.r; el.dataset.key = k.key; pos(el, k.c, k.r, k.w, k.h);
+        const it = k.item;
+        if (it) { const col = QUALITY_COLOR[it.quality] || "#8a93a3"; el.style.background = col + "33"; el.style.borderColor = col; if (it.red) el.classList.add("red");
+          el.title = `${it.ko} (${ko(QUALITY_KO, it.quality)})\n참고 가치 ${it.price}\n후보 ${it.n}개: ${it.all.join(", ")}`;
+          el.innerHTML = `<div class="nm"></div><div class="pr"></div><div class="pc"></div>`;
+          el.querySelector(".nm").textContent = it.ko; el.querySelector(".pr").textContent = priceText(it.price); el.querySelector(".pc").textContent = (it.n === 1 ? "100%" : it.conf + "%") + (it.sure ? " ✓" : "");
+          el.querySelector(".pc").style.color = col; }
+        const sz = document.createElement("span"); sz.className = "sz"; sz.textContent = `${k.w}×${k.h}`; el.appendChild(sz);
+        g.appendChild(el);
+      }
+      box.appendChild(g);
+    }
+    $("gridMap").addEventListener("click", e => {
+      const el = e.target.closest("[data-c]"); if (!el) return; const c = +el.dataset.c, r = +el.dataset.r, key = el.dataset.key;
+      if (size === "del") { if (key) { tracker.removeManual(key); tracker.items.delete(key); for (const [kk, o] of tracker.obs) if (`${o.r},${o.c}` === key) tracker.obs.delete(kk); tracker._list = null; } }
+      else if (size) { const [w, h] = size.split("x").map(Number); tracker.setManual(c, r, w, h); }
+      else if (key) pick = pick === key ? null : key;
+      lastSig = ""; render();
+      if (pick && !size) info("이 화물을 골랐습니다. 다음 소리 결과를 여기에 넣습니다. (다시 누르면 해제)");
+    });
+    $("gridBox").querySelectorAll("[data-size]").forEach(b => b.addEventListener("click", () => { size = size === b.dataset.size ? null : b.dataset.size; $("gridBox").querySelectorAll("[data-size]").forEach(x => x.classList.toggle("sel", x.dataset.size === size)); info(size ? (size === "del" ? "지울 화물을 누르세요." : `${size.replace("x", "×")} 크기: 화물의 왼쪽 위 칸을 누르세요. (버튼을 다시 누르면 해제)`) : "직접 지정 해제"); lastSig = ""; render(); }));
+    $("btnGridReset").onclick = () => { tracker.reset(); pick = null; lastSig = ""; render(); info("격자를 비웠습니다."); };
+    render();
+    return { start, stop, onResult, targetNow, info, tracker };
+  })();
+
   // ---------- 시작 ----------
   setStatus("인식 템플릿을 불러오는 중…");
   initMatcher().then(r => {
@@ -293,5 +384,5 @@
   document.addEventListener("visibilitychange", keepAlive); window.addEventListener("blur", keepAlive);
 
   // 테스트용 훅 (콘솔): 원본 효과음을 오프라인으로 인식
-  window.MH_TEST = { match: (x, s, bg) => match(x, s, bg || 0, false), engine, showRows, b64ToBuf };
+  window.MH_TEST = { match: (x, s, bg) => match(x, s, bg || 0, false), engine, showRows, b64ToBuf, GRID, setTarget: t => { pendingTarget = t; } };
 })();
