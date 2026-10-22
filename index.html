@@ -30,7 +30,8 @@
   <div class="row small">
     <span>소스: <b id="srcName">없음</b></span>
     <span>샘플레이트: <b id="srcRate">-</b></span>
-    <div class="meter"><div id="meterBar"></div></div>
+    <div class="meter"><div id="meterBar"></div><div class="thrLine"></div></div>
+    <span class="sensctl small">감도 <button class="sensDn" title="덜 민감하게">−</button><b class="sensVal">4</b><button class="sensUp" title="더 민감하게">+</button> 증폭 <button class="gainDn">−</button><b class="gainVal">×1</b><button class="gainUp">+</button></span>
     <span>배경 <b id="bgVal">-</b></span>
   </div>
 </section>
@@ -69,7 +70,8 @@
   </div>
   <div id="miniBar" class="minibar" hidden>
     <span id="miniState" class="small">대기</span>
-    <div class="meter"><div id="miniMeterBar"></div></div>
+    <div class="meter"><div id="miniMeterBar"></div><div class="thrLine"></div></div>
+    <span class="sensctl small">감도 <button class="sensDn" title="덜 민감하게">−</button><b class="sensVal">4</b><button class="sensUp" title="더 민감하게">+</button> 증폭 <button class="gainDn">−</button><b class="gainVal">×1</b><button class="gainUp">+</button></span>
     <span id="miniLevel" class="small muted">소리 소스 없음</span>
   </div>
   <div class="row filters">
@@ -113,6 +115,7 @@
 <script src="js/names_ko.js"></script>
 <script src="js/matcher.js"></script>
 <script src="js/grid.js"></script>
+<script src="js/events.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

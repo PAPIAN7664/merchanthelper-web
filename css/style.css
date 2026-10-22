@@ -64,3 +64,4 @@ body.pip #gridLegend{display:none}
 body.pip .gridmap .cargo .nm{font-size:8px;line-height:11px}
 
 .sizetag{color:var(--muted)}.sizetag.on{color:#ffd84a;font-weight:700}.sizetag button{margin-left:4px;font-size:11px;padding:1px 6px}
+.meter{position:relative}.meter>div:first-child{height:100%}.meter .thrLine{position:absolute;top:-1px;bottom:-1px;width:2px;background:#ff5a5a;left:0}.sensctl{display:inline-flex;gap:3px;align-items:center}.sensctl button{padding:0 7px;font-size:12px;line-height:18px}.sensctl b{min-width:22px;text-align:center}

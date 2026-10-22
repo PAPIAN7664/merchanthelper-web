@@ -85,7 +85,7 @@
   // 여러 프레임을 하나의 전체 격자로 합침 (스크롤 추적 + 프레임 투표로 깜빡임 제거)
   class GridTracker {
     constructor() { this.level = 0; this.reset(); }
-    reset() { this.cells = new Map(); this.obs = new Map(); this.manual = new Map(); this.items = new Map(); this.base = null; this.scroll = 0; this.prev = null; this.ncol = 0; this.hover = null; this.hoverT = -1e9; this.drag = null; this.dragT = -1e9; this.lostT = null; this.lastOff = undefined; this.bad = 0; this.changedScreen = false; this.frames = 0; this.seen = 0; this._list = null; }
+    reset() { this.epoch = (this.epoch || 0) + 1; this.cells = new Map(); this.obs = new Map(); this.manual = new Map(); this.items = new Map(); this.base = null; this.scroll = 0; this.prev = null; this.ncol = 0; this.hover = null; this.hoverT = -1e9; this.drag = null; this.dragT = -1e9; this.lostT = null; this.lastOff = undefined; this.bad = 0; this.changedScreen = false; this.frames = 0; this.seen = 0; this._list = null; }
     shift(a, b, y0, y1) {
       const span = y1 - y0, lim = Math.round(span * 0.75); let best = 0, bs = 1e9;
       for (let d = -lim; d <= lim; d++) { let s = 0, n = 0; for (let y = y0; y < y1; y += 1) { const z = y + d; if (z < y0 || z >= y1) continue; s += Math.abs(a[y] - b[z]); n++; } if (n < span * 0.3) continue; const m = s / n + Math.abs(d) * 0.002; if (m < bs) { bs = m; best = d; } }

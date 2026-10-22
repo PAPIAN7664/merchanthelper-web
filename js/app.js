@@ -6,7 +6,7 @@
   const $ = id => _els[id] || (_els[id] = document.getElementById(id));
   // 원본 기본값 (main.parse_args / recorder.py)
   const WINDOW_SECONDS = 1.5, UPDATE_SECONDS = 0.18, SETTLE = 0.14, RETRY = 3, RETRY_DELAY = 0.28, LISTEN_MAX = 2.0;
-  const MIN_INTERVAL = 0.9, GOOD_ENOUGH_SCORE = 85, LIMIT = 5, MAX_CARDS = 20;
+  let MIN_INTERVAL = 0.9; const GOOD_ENOUGH_SCORE = 85, LIMIT = 5, MAX_CARDS = 20;
   const QUALITY_KO = { "金色": "금색", "红色": "빨강", "紫色": "보라" };
   const QUALITY_COLOR = { "金色": "#d4af37", "红色": "#d9534f", "紫色": "#a06cd5" };
   const CATEGORY_KO = { "收藏品": "수집품", "生活用品": "생활용품", "电子产品": "전자제품", "军用杂物": "군용 잡화", "电脑配件": "컴퓨터 부품", "仪器仪表": "계측기", "医用杂物": "의료 잡화", "医疗杂物": "의료 잡화(医疗)", "工具": "공구", "易燃物品": "인화성 물품", "纸制品": "종이 제품", "能源物品": "에너지 물품", "建筑材料": "건축 자재" };
@@ -44,16 +44,32 @@
   // ---------- 캡처 ----------
   let ctx = null, stream = null, srcNode = null, procNode = null, sinkNode = null, sr = 48000;
   let ring = null, ringPos = 0, ringFilled = 0, sinceUpdate = 0, latest = null; // latest = {win, bg, t}
-  let sampleClock = 0, waiters = [], meterAcc = 0;
+  let sampleClock = 0, waiters = [], meterAcc = 0, levelRms = 0, tgtAcc = 0;
+  // 감도 1~7 (4 = 기본값, 녹화로 맞춘 값). 높을수록 작은 소리에도 반응. 트리거 기준(배경 배수·상승 비율·최소 크기)과 트리거 간격을 함께 바꿈
+  const SENS = [null,
+    { bgMul: 6, ratio: 3, floor: 0.004, gap: 0.9 }, { bgMul: 5, ratio: 2.6, floor: 0.0025, gap: 0.9 }, { bgMul: 4.2, ratio: 2.3, floor: 0.0017, gap: 0.9 },
+    { bgMul: 3.5, ratio: 2, floor: 0.0012, gap: 0.9 }, { bgMul: 2.8, ratio: 1.8, floor: 0.0008, gap: 0.7 }, { bgMul: 2.2, ratio: 1.6, floor: 0.0005, gap: 0.6 }, { bgMul: 1.8, ratio: 1.4, floor: 0.0003, gap: 0.5 }];
+  const GAINS = [1, 2, 4, 8];
+  let sens = 4, gainIdx = 0; try { const st = JSON.parse(localStorage.getItem("mh_audio") || "{}"); if (SENS[st.sens]) sens = st.sens; if (GAINS[st.gain] !== undefined) gainIdx = st.gain; } catch (e) {}
+  let curThr = 0.0012;
+  function applySens() { MIN_INTERVAL = SENS[sens].gap; try { localStorage.setItem("mh_audio", JSON.stringify({ sens, gain: gainIdx })); } catch (e) {}
+    document.querySelectorAll(".sensVal").forEach(e => e.textContent = sens); document.querySelectorAll(".gainVal").forEach(e => e.textContent = "×" + GAINS[gainIdx]); drawMeter(); }
+  document.querySelectorAll(".sensDn,.sensUp,.gainDn,.gainUp").forEach(b => b.addEventListener("click", () => { // 버튼마다 붙임: 작은 창(PiP)으로 옮겨도 동작
+    if (b.classList.contains("sensDn")) sens = Math.max(1, sens - 1); else if (b.classList.contains("sensUp")) sens = Math.min(7, sens + 1);
+    else if (b.classList.contains("gainDn")) gainIdx = Math.max(0, gainIdx - 1); else gainIdx = Math.min(GAINS.length - 1, gainIdx + 1);
+    applySens(); setStatus(`감도 ${sens}/7 · 증폭 ×${GAINS[gainIdx]} (빨간 선 = 소리 감지 기준. 화물 소리 때 막대가 선을 넘어야 인식 시작)`); }));
   let active = false, busy = false, lastAudioTrigger = 0, prevPeak = 0, levelPeak = 0, levelNow = 0, heardT = -1e9;
 
   function resetRing() { if (ring) ring.fill(0); ringPos = 0; ringFilled = 0; sinceUpdate = 0; latest = null; prevPeak = 0; }
   function ringWindow() { const n = ring.length; if (ringFilled < n) return ring.slice(0, ringFilled); const out = new Float32Array(n); out.set(ring.subarray(ringPos)); out.set(ring.subarray(0, ringPos), n - ringPos); return out; }
   function onBlock(block) {
+    const gn = GAINS[gainIdx]; if (gn !== 1) for (let i = 0; i < block.length; i++) block[i] *= gn; // 증폭
+    { let s2 = 0; for (const v of block) s2 += v * v; const r = Math.sqrt(s2 / Math.max(1, block.length)); levelRms = Math.max(levelRms * 0.8, r); }
     let pk = 0; for (const v of block) { const a = Math.abs(v); if (a > pk) pk = a; } levelPeak = Math.max(levelPeak * 0.85, pk);
     sampleClock += block.length;
     if (waiters.length) { const due = waiters.filter(w => w.at <= sampleClock); waiters = waiters.filter(w => w.at > sampleClock); due.forEach(w => w.r()); }
     meterAcc += block.length; if (meterAcc >= sr * 0.1) { meterAcc = 0; drawMeter(); }
+    tgtAcc += block.length; if (tgtAcc >= sr * 0.05) { tgtAcc = 0; if (active) recordTarget(); } // 50ms마다 대상 화물 기록 (빠른 연속 드래그 구분용)
     if (!active) return; // 원본: 감시 중이 아니면 오디오를 쌓지 않음
     const n = ring.length;
     for (let i = 0; i < block.length; i++) { ring[ringPos] = block[i]; ringPos = (ringPos + 1) % n; }
@@ -63,21 +79,60 @@
     const win = ringWindow(), bg = MH.backgroundLevel(win, sr);
     latest = { win, bg, t: performance.now() };
     $("bgVal").textContent = bg.toFixed(5);
-    if ($("optAutoTrigger").checked) maybeAudioTrigger(win, bg);
+    if ($("optAutoTrigger").checked && !scanning) scanLoop();
   }
   // main.AudioFeed._maybe_audio_trigger
   // 새로 들어온 0.18초 구간이 바로 앞 0.5초보다 확 커지면 트리거.
   // (예전: 1.5초 창 전체 최대값끼리 비교 → 배경 잡음 봉우리가 기준의 60%만 넘어도 조용한 화물 소리를 막았음)
   function framePeak(w, a, b, fr) { let pk = 0; for (let i = Math.max(0, a); i + fr <= b; i += fr) { let s = 0; for (let j = 0; j < fr; j++) { const v = w[i + j]; s += v * v; } pk = Math.max(pk, Math.sqrt(s / fr)); } return pk; }
   function audioOnset(w, bg, sr) { const fr = Math.round(sr / 50), n = w.length, nw = Math.round(UPDATE_SECONDS * sr), ob = Math.round(0.5 * sr);
-    const now = framePeak(w, n - nw, n, fr), before = framePeak(w, n - nw - ob, n - nw, fr), thr = Math.max(0.0012, bg * 3.5);
-    return { now, before, thr, hit: now >= thr && now >= before * 2 }; }
+    const S = SENS[sens], now = framePeak(w, n - nw, n, fr), before = framePeak(w, n - nw - ob, n - nw, fr), thr = Math.max(S.floor, bg * S.bgMul); curThr = thr;
+    return { now, before, thr, hit: now >= thr && now >= before * S.ratio }; }
   function maybeAudioTrigger(w, bg) {
     const now = performance.now() / 1000;
     const o = audioOnset(w, bg, sr); levelNow = o.now;
     if (now - lastAudioTrigger < MIN_INTERVAL || !o.hit) return;
     lastAudioTrigger = now; heardT = now;
     handleTrigger("소리 감지");
+  }
+
+  // ---------- 연속 소리 인식 (간격 제한 없음) ----------
+  // 0.2초마다(매칭이 더 걸리면 끝나는 대로) 마지막 1초를 매칭 → 소리가 '언제' 났는지 찾음. 같은 소리의 겹친 검출은 합치고,
+  // 그 시각에 마우스/드래그 중이던 화물에 붙임. 같은 화물에서 여러 번 나면 점수를 모음(평균)
+  const SCAN_WIN = 1.0, SCAN_PERIOD = 0.2;
+  const scanner = new MHEvents.EventScanner({ minScore: GOOD_ENOUGH_SCORE }), votes = new MHEvents.CargoVotes();
+  let scanning = false, tgtHist = [], votesEpoch = -1;
+  const audioNow = () => sampleClock / sr;
+  function recordTarget() { const t = audioNow(); tgtHist.push({ t, tgt: GRID.targetNow() }); while (tgtHist.length && t - tgtHist[0].t > 5) tgtHist.shift(); }
+  function targetAt(at) { let best = null; for (const h of tgtHist) { if (h.t <= at + 0.12) best = h; else break; } return best ? best.tgt : null; } // 소리 시작 직후까지의 대상
+  function lastSeconds(sec) { const n = ring.length, k = Math.min(ringFilled, Math.round(sec * sr)), out = new Float32Array(k); let p = (ringPos - k + n) % n; for (let i = 0; i < k; i++) { out[i] = ring[p]; p = (p + 1) % n; } return out; }
+  async function scanLoop() {
+    scanning = true;
+    try {
+      while (active && ctx && $("optAutoTrigger").checked) {
+        const t0 = audioNow();
+        if (ringFilled >= SCAN_WIN * sr) {
+          const w = lastSeconds(SCAN_WIN), bg = latest ? latest.bg : MH.backgroundLevel(w, sr), S = SENS[sens];
+          const fr = Math.round(sr / 50); const pk = framePeak(w, 0, w.length, fr), thr = Math.max(S.floor, bg * S.bgMul); curThr = thr; levelNow = pk;
+          if (pk >= thr) {
+            const tm = performance.now(); const r = await match(w, sr, MH.backgroundLevel(w, sr), false);
+            for (const ev of scanner.process(r.rows || [], t0 - SCAN_WIN, t0)) onSoundEvent(ev, r.reason, performance.now() - tm);
+          }
+        }
+        await new Promise(res => { const at = sampleClock + Math.round(SCAN_PERIOD * sr); waiters.push({ at, r: res }); });
+        if (audioNow() - t0 < SCAN_PERIOD * 0.5) await new Promise(res => setTimeout(res, 50));
+      }
+    } catch (e) { setStatus("연속 인식 오류: " + e.message); }
+    finally { scanning = false; }
+  }
+  function onSoundEvent(ev, reason, ms) {
+    if (GRID.tracker.epoch !== votesEpoch) { votes.clear(); votesEpoch = GRID.tracker.epoch; } // 화물 배치가 바뀌면 모은 점수도 버림
+    heardT = performance.now() / 1000;
+    const tgt = targetAt(ev.at), ck = tgt && !tgt.cellOnly ? tgt.key : "_none";
+    const rows = ck === "_none" ? ev.rows : votes.add(ck, ev.id, ev.rows);
+    const lat = audioNow() - ev.at;
+    pendingTarget = tgt;
+    showRows(rows, reason, `소리 ${ev.updated ? "보강" : "감지"} · 소리 시작부터 ${lat.toFixed(2)}초${ck !== "_none" && votes.count(ck) > 1 ? ` · 같은 화물 소리 ${votes.count(ck)}번 모음` : ""}`);
   }
 
   const WORKLET = `class P extends AudioWorkletProcessor{process(i){const c=i[0];if(c&&c.length){const n=c[0].length,o=new Float32Array(n);for(const ch of c)for(let k=0;k<n;k++)o[k]+=ch[k]/c.length;this.port.postMessage(o,[o.buffer]);}return true;}}registerProcessor('mh-tap',P);`;
@@ -259,7 +314,7 @@
   }
   ["fQuality", "fCategory", "fOrient", "fMin"].forEach(id => $(id).addEventListener("change", applyFilter));
   $("fSearch").addEventListener("input", applyFilter);
-  $("btnClear").onclick = () => { allCands = []; lastSig = ""; listSize = null; rebuildCombos(); applyFilter(); };
+  $("btnClear").onclick = () => { allCands = []; lastSig = ""; listSize = null; votes.clear(); rebuildCombos(); applyFilter(); };
   $("btnHistory").onclick = () => { const h = $("history"); h.hidden = !h.hidden; renderHistory(); };
   function renderHistory() { $("history").textContent = history.length ? history.slice().reverse().map((r, i) => `#${i + 1} ${r.time}  후보 ${r.items.length}개  ${r.items.slice(0, 5).map(c => koName(c.name)).join("、")}${r.items.length > 5 ? " 등" : ""}`).join("\n") : "(아직 기록 없음)"; }
 
@@ -282,7 +337,7 @@
     w.addEventListener("keydown", onKey);
     const back = () => { if (!mini || mini.w !== w) return; mini = null; $("miniBar").hidden = true; anchor.parentNode.insertBefore(document.adoptNode(panel), anchor); anchor.remove(); };
     w.addEventListener("pagehide", back); w.addEventListener("unload", back);
-    keepAlive(); drawMeter();
+    keepAlive(); applySens();
     setStatus(kind === "pip" ? "작은 창(항상 위)에 후보를 표시합니다." : "팝업 창에 후보를 표시합니다. (작은 창 미지원/실패 → 팝업으로 대체, 항상 위는 아님)");
   }
   $("btnPip").onclick = async () => {
@@ -397,12 +452,14 @@
   refreshDevices(false);
   function drawMeter() {
     // dB 눈금(-60~0 dB): 화물 소리는 -45~-35 dB 정도로 작아서 직선 눈금이면 막대가 안 보였음
-    const db = levelPeak > 0 ? 20 * Math.log10(levelPeak) : -99, w = Math.max(0, Math.min(100, (db + 60) / 60 * 100)) + "%"; $("meterBar").style.width = w; $("miniMeterBar").style.width = w;
+    const db = levelRms > 0 ? 20 * Math.log10(levelRms) : -99, w = Math.max(0, Math.min(100, (db + 60) / 60 * 100)) + "%"; $("meterBar").style.width = w; $("miniMeterBar").style.width = w;
     const heard = performance.now() / 1000 - heardT < 1.2;
+    const tdb = 20 * Math.log10(curThr), tl = Math.max(0, Math.min(99, (tdb + 60) / 60 * 100)) + "%"; document.querySelectorAll(".thrLine").forEach(e => { e.style.left = tl; e.title = `소리 감지 기준 ${tdb.toFixed(0)} dB`; });
     $("meterBar").style.background = $("miniMeterBar").style.background = heard ? "#ffd84a" : "";
     $("miniLevel").textContent = ctx ? `입력 ${db > -99 ? db.toFixed(0) : "-∞"} dB · ${ctx.state !== "running" ? "오디오 " + ctx.state : heard ? "🔔 소리 들림 (인식 중)" : db < -70 ? "소리가 안 들어옴 — 공유 창에서 「시스템 오디오 공유」 확인" : "오디오 들어오는 중"}` : "소리 소스 없음";
   }
   setInterval(() => { if (!ctx || ctx.state !== "running") drawMeter(); }, 500);
+  applySens(); // 저장된 감도·증폭 표시
   // 탭이 숨겨지거나 포커스를 잃어도 AudioContext 를 계속 깨워 둠
   function keepAlive() { if (ctx && ctx.state === "suspended") ctx.resume().catch(() => {}); }
   document.addEventListener("visibilitychange", keepAlive); window.addEventListener("blur", keepAlive);
