@@ -70,6 +70,7 @@
     if (waiters.length) { const due = waiters.filter(w => w.at <= sampleClock); waiters = waiters.filter(w => w.at > sampleClock); due.forEach(w => w.r()); }
     meterAcc += block.length; if (meterAcc >= sr * 0.1) { meterAcc = 0; drawMeter(); }
     tgtAcc += block.length; if (tgtAcc >= sr * 0.05) { tgtAcc = 0; if (active) recordTarget(); } // 50ms마다 대상 화물 기록 (빠른 연속 드래그 구분용)
+    if (ST.on) ST.feed(block);
     if (!active) return; // 원본: 감시 중이 아니면 오디오를 쌓지 않음
     const n = ring.length;
     for (let i = 0; i < block.length; i++) { ring[ringPos] = block[i]; ringPos = (ringPos + 1) % n; }
@@ -179,7 +180,7 @@
       const wantGrid = $("optGrid").checked;
       const s = await navigator.mediaDevices.getDisplayMedia({ video: wantGrid ? { frameRate: { ideal: 10, max: 15 }, width: { ideal: 2560 }, height: { ideal: 1440 } } : { frameRate: 1, width: 320, height: 180 }, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false }, systemAudio: "include", selfBrowserSurface: "exclude", surfaceSwitching: "exclude" });
       await attach(s, "시스템 소리 (화면 공유)");
-    } catch (e) { setStatus("화면 공유 실패: " + e.message); }
+    } catch (e) { if (/오디오 트랙/.test(e.message)) ST.noAudio(); setStatus("화면 공유 실패: " + e.message); }
   };
   async function refreshDevices(askPermission) {
     try {
@@ -498,8 +499,113 @@
   function keepAlive() { if (ctx && ctx.state === "suspended") ctx.resume().catch(() => {}); }
   document.addEventListener("visibilitychange", keepAlive); window.addEventListener("blur", keepAlive);
 
+  // ---------- 사운드 테스트 (창고에서) — 격자 없이 소리 경로만 단계별 점검 ----------
+  const ST = (() => {
+    const N_SILENT = 6, N_WAIT = 30;
+    let on = false, buf = null, bpos = 0, bfill = 0, t = 0, tStart = 0, timer = null, sMatch = null;
+    let T1 = 0, T2 = 0, HIT = {}, s = {}, lvl = { max: -99, sum: 0, n: 0, loud: 0 }, hist = [], near = 0, over = 0, ticks = 0, lastHit = -9, tries = [], noAudioErr = false, matching = false;
+    const ua = navigator.userAgent, isFF = /Firefox\//.test(ua), isSafari = /Safari\//.test(ua) && !/Chrome|Chromium|Edg\//.test(ua);
+    const browser = (ua.match(/(Edg|Whale|OPR|Chrome|Firefox|Version)\/([\d]+)/) || [, "?", ""]).slice(1).join(" ").replace("Version", "Safari") + (/Windows/.test(ua) ? " · Windows" : /Mac OS/.test(ua) ? " · macOS" : /Linux/.test(ua) ? " · Linux" : "");
+    const STEPS = ["화면 공유 + 시스템 오디오", "소리가 들어오는지", "아이템을 옮길 때 소리가 기준선을 넘는지", "소리가 물품 소리 그룹과 맞는지"];
+    function feed(b) { if (!buf || buf.length !== Math.round(sr * 1.5)) { buf = new Float32Array(Math.round(sr * 1.5)); bpos = 0; bfill = 0; } for (let i = 0; i < b.length; i++) { buf[bpos] = b[i]; bpos = (bpos + 1) % buf.length; } bfill = Math.min(buf.length, bfill + b.length); }
+    function last(sec) { const n = buf.length, k = Math.min(bfill, Math.round(sec * sr)), o = new Float32Array(k); let p = (bpos - k + n) % n; for (let i = 0; i < k; i++) { o[i] = buf[p]; p = (p + 1) % n; } return o; }
+    const dB = v => v > 0 ? 20 * Math.log10(v) : -99, f0 = v => v > -99 ? v.toFixed(0) : "-∞";
+    function set(i, st, msg, hint) { s[i] = { st, msg, hint: hint || "" }; }
+    function reset() { s = {}; STEPS.forEach((_, i) => set(i, "wait", "대기")); lvl = { max: -99, sum: 0, n: 0, loud: 0 }; hist = []; near = 0; over = 0; ticks = 0; lastHit = -9; tries = []; sMatch = null; T1 = T2 = 0; HIT = {}; }
+    async function start() {
+      reset(); on = true; tStart = performance.now() / 1000; buf = null;
+      $("stPanel").classList.add("running"); $("stPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+      if (isFF || isSafari || !(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)) set(0, "fail", `이 브라우저(${browser})는 화면 공유로 시스템 소리를 못 가져옵니다.`, "Windows의 Chrome 또는 Edge로 이 페이지를 여세요. (Firefox·Safari는 시스템 오디오 공유가 안 됩니다.) 다른 방법: 「스테레오 믹스」나 가상 오디오 케이블을 입력 장치로 고르고 「이 장치 사용」.");
+      else if (!stream) { set(0, "run", "화면 공유 창을 띄웠습니다. 「전체 화면」 탭 → 화면 선택 → 「시스템 오디오도 공유」를 켜고 「공유」를 누르세요."); render(); noAudioErr = false; try { await $("btnDisplay").onclick(); } catch (e) {} }
+      if (!timer) timer = setInterval(tick, 200); tick();
+    }
+    function stop() { on = false; if (timer) clearInterval(timer); timer = null; $("stPanel").classList.remove("running"); render(); }
+    function tick() {
+      if (!on) return; const now = performance.now() / 1000; ticks++;
+      // 1. 공유 + 오디오 트랙
+      if (s[0].st !== "fail" || stream) {
+        if (!stream) { if (noAudioErr || now - tStart > 4) set(0, "fail", noAudioErr ? "화면은 공유됐지만 소리(오디오 트랙)가 없습니다." : "아직 소리 소스가 연결되지 않았습니다.", "「화면 공유로 시스템 소리 가져오기」를 다시 누르고, 공유 창에서 「전체 화면」 탭 → 화면 선택 → 아래 「시스템 오디오도 공유」 스위치를 켠 뒤 공유하세요. 「창」 탭이나 다른 「Chrome 탭」을 고르면 게임 소리가 안 옵니다."); }
+        else { const vt = stream.getVideoTracks()[0], at = stream.getAudioTracks()[0], surf = vt && vt.getSettings ? vt.getSettings().displaySurface : "";
+          if (!at || at.readyState === "ended") set(0, "fail", "오디오 트랙이 끊겼습니다.", "공유를 중지하고 다시 공유하세요. 「시스템 오디오도 공유」를 켜야 합니다.");
+          else if (surf === "browser") set(0, "fail", "브라우저 탭만 공유됐습니다 — 그 탭의 소리만 오고 게임 소리는 안 옵니다.", "공유를 다시 하고 「전체 화면」 탭을 고른 뒤 「시스템 오디오도 공유」를 켜세요.");
+          else if (surf === "window") set(0, "warn", "창 공유는 소리가 안 올 수 있습니다.", "「전체 화면」 공유 + 「시스템 오디오도 공유」를 권장합니다. 아래 2단계가 통과하면 그대로 써도 됩니다.");
+          else set(0, "ok", vt ? `화면 공유(${surf || "화면"}) + 오디오 트랙 있음 · ${sr} Hz` : `입력 장치(${$("srcName").textContent}) 사용 · ${sr} Hz`); }
+      }
+      if (!stream || !ctx || !buf || bfill < sr * 0.5) { render(); return; }
+      // 2. 소리가 들어오는지
+      const w02 = last(0.2), fr = Math.round(sr / 50), pk = framePeak(w02, 0, w02.length, fr), d = dB(pk);
+      lvl.max = Math.max(lvl.max, d); lvl.sum += d; lvl.n++; if (d > -70) lvl.loud++;
+      if (!T1) T1 = now;
+      if (ctx.state !== "running") set(1, "fail", `오디오가 멈춰 있습니다 (${ctx.state}).`, "이 페이지를 한 번 클릭하세요. 탭을 백그라운드로 보내지 말고 작은 창(항상 위)을 쓰세요.");
+      else if (lvl.loud >= 2) set(1, "ok", `소리 들어옴 · 지금 ${f0(d)} dB · 최대 ${f0(lvl.max)} dB`);
+      else if (now - T1 > N_SILENT) set(1, "fail", `${N_SILENT}초 동안 소리가 전혀 없습니다 (최대 ${f0(lvl.max)} dB).`, "게임에서 아무 소리나 나게 해 보세요. 그래도 0이면 공유를 다시 하고 「시스템 오디오도 공유」를 켜세요. 게임 소리가 다른 출력 장치(헤드셋 전용 등)로 나가면 Windows 기본 출력 장치를 그 장치로 맞추세요.");
+      else set(1, "run", `소리를 기다리는 중… 지금 ${f0(d)} dB`);
+      if (s[1].st !== "ok") { render(); return; }
+      // 3. 창고에서 아이템 드래그 → 기준선 넘는지
+      const S = SENS[sens], w = last(1.5), bg = MH.backgroundLevel(w, sr), thr = Math.max(S.floor, bg * S.bgMul), before = framePeak(w, w.length - Math.round(0.7 * sr), w.length - w02.length, fr);
+      curThr = thr; const isOver = pk >= thr; hist.push(isOver ? 1 : 0); if (hist.length > 25) hist.shift(); if (isOver) over++;
+      const overFrac = hist.reduce((a, b) => a + b, 0) / hist.length, onset = pk >= before * S.ratio;
+      if (!T2) T2 = now;
+      if (isOver && onset && now - lastHit > 0.6) { lastHit = now; sMatch = now + 0.45; HIT.d = d; HIT.thr = dB(thr); }
+      else if (!isOver && onset && pk >= thr / 4 && d > -75) near = Math.max(near, d - dB(thr));
+      const tdb = f0(dB(thr));
+      if (HIT.d !== undefined) set(2, "ok", `소리 감지됨 · ${f0(HIT.d)} dB (기준선 ${f0(HIT.thr)} dB) · 감도 ${sens}/7 · 증폭 ×${GAINS[gainIdx]}`, hist.length >= 25 && overFrac > 0.6 ? "※ 배경 소리가 계속 기준선 근처입니다. 음악·보이스챗·TTS·마이크 소리를 줄이세요." : "");
+      else if (hist.length >= 25 && overFrac > 0.6) set(2, "warn", `소리가 계속 기준선(${tdb} dB) 위에 있습니다 — 잡음이 너무 큽니다.`, "게임 배경음악·보이스챗·디스코드·TTS·마이크 모니터링을 끄거나 줄이세요. 감도를 1~2 낮추면 덜 민감해집니다. 그다음 다시 아이템을 옮겨 보세요.");
+      else if (now - T2 > N_WAIT) set(2, "fail", `${N_WAIT}초 동안 기준선(${tdb} dB)을 넘는 소리가 없었습니다.${near ? ` 가장 가까웠던 소리는 기준선보다 ${(-near).toFixed(0)} dB 작았습니다.` : ""}`, "소리가 너무 작습니다: 감도(+)를 올리거나 증폭(×2, ×4)을 올리세요. 게임 설정에서 효과음(SFX) 볼륨을 올리고 배경음악·음성은 내리세요. 창고에서 아이템을 마우스로 집어 다른 칸에 놓아 보세요.");
+      else set(2, "run", `창고(stash)에서 아무 아이템이나 마우스로 집어 다른 칸에 옮겨 보세요… (지금 ${f0(d)} dB, 기준선 ${tdb} dB${near ? `, 가까웠던 소리 ${near.toFixed(0)} dB` : ""})`);
+      // 4. 매칭
+      if (sMatch && now >= sMatch && !matching) { sMatch = null; matching = true; const x = last(1.2);
+        match(x, sr, MH.backgroundLevel(x, sr), true).then(r => { tries.push({ rows: (r.rows && r.rows.length ? r.rows : r.weak || []).slice(0, 5), strong: !!(r.rows && r.rows.length), at: new Date() }); judge(); }).catch(e => set(3, "fail", "인식 오류: " + e.message)).finally(() => { matching = false; render(); }); }
+      if (HIT.d === undefined && !tries.length) set(3, "wait", "3단계를 기다리는 중");
+      render();
+    }
+    function picked() { const v = $("stItem").value.trim(); if (!v) return null; const all = db.items.concat(db.special_items); return all.find(i => koName(i.name) === v || i.name === v || enName(i.name).toLowerCase() === v.toLowerCase()) || null; }
+    function rankOf(rows, it) { if (!it) return -1; return rows.findIndex(r => r.key === it.sound_type || r.key === it.name || (r.items || []).some(x => x.name === it.name)); }
+    function judge() {
+      const tr = tries[tries.length - 1]; if (!tr) return; const top = tr.rows[0], it = picked(), rk = rankOf(tr.rows, it);
+      if (!top) set(3, "fail", "소리는 들렸지만 어떤 물품 소리와도 맞지 않았습니다.", "아이템 소리 말고 다른 소리(발소리·UI 클릭·음악)였을 수 있습니다. 배경음악·음성을 줄이고 아이템을 한 번만 옮긴 뒤 1초 기다리세요. 잘 안 되면 감도를 1 낮추세요.");
+      else if (!tr.strong) set(3, "warn", `약하게만 맞았습니다: ${sndName(top.key)} ${top.score}점 (기준 ${GOOD_ENOUGH_SCORE}점 미만)`, "잡음이 섞였거나 소리가 작습니다. 효과음 볼륨을 올리고 음악·음성을 줄인 뒤 다시 옮겨 보세요.");
+      else if (it && rk < 0) set(3, "warn", `맞은 소리: ${sndName(top.key)} ${top.score}점 — 고른 「${koName(it.name)}」의 소리 그룹은 상위 ${tr.rows.length}개에 없음`, "옮긴 아이템을 정확히 골랐는지 확인하고 한 번 더 옮겨 보세요. 계속 다르면 아래 진단 글을 방송인에게 보내 주세요.");
+      else set(3, "ok", `맞은 소리: ${sndName(top.key)} ${top.score}점${it ? ` · 고른 「${koName(it.name)}」 ${rk + 1}위${rk === 0 ? " ✔" : ""}` : ""}`, it ? "" : "아래 그림 중에 방금 옮긴 아이템이 있으면 정상입니다. (선택: 옮긴 아이템 이름을 입력하면 몇 위인지 보여줍니다)");
+    }
+    const ICON = { ok: "✅", fail: "❌", warn: "⚠️", run: "⏳", wait: "·" };
+    function render() {
+      const ol = $("stSteps"); ol.innerHTML = "";
+      STEPS.forEach((nm, i) => { const x = s[i] || { st: "wait", msg: "대기" }; const li = document.createElement("li"); li.className = "st-" + x.st;
+        li.innerHTML = `<span class="sti"></span> <b></b><div class="stm"></div>${x.hint ? '<div class="sth"></div>' : ""}`;
+        li.querySelector(".sti").textContent = ICON[x.st]; li.querySelector("b").textContent = `${i + 1}. ${nm}`; li.querySelector(".stm").textContent = x.msg; if (x.hint) li.querySelector(".sth").textContent = "→ " + x.hint; ol.appendChild(li); });
+      const tr = tries[tries.length - 1], box = $("stMatch"); box.innerHTML = "";
+      if (tr) { const it = picked(), rk = rankOf(tr.rows, it);
+        tr.rows.forEach((r, i) => { const cands = engine.resolve([r]).slice(0, 6), el = document.createElement("div"); el.className = "stgrp" + (i === rk ? " hit" : "");
+          el.innerHTML = `<div class="stgh"></div><div class="stimgs"></div>`; el.querySelector(".stgh").textContent = `${i + 1}위 · ${sndName(r.key)} · ${r.score}점${i === rk ? " ← 고른 아이템" : ""}`;
+          for (const c of cands) { const im = document.createElement("img"); im.src = "assets/images/" + encodeURIComponent(c.image); im.title = koName(c.name); im.style.borderColor = QUALITY_COLOR[c.quality] || "#8a93a3"; im.onerror = () => { im.style.visibility = "hidden"; }; el.querySelector(".stimgs").appendChild(im); }
+          box.appendChild(el); }); }
+      const sts = STEPS.map((_, i) => (s[i] || {}).st), done = sts.every(x => x === "ok"), bad = sts.indexOf("fail");
+      $("stSummary").className = "stsum " + (done ? "ok" : bad >= 0 ? "fail" : sts.includes("warn") ? "warn" : "");
+      $("stSummary").textContent = done ? "✅ 통과: 소리 인식이 정상입니다. 상인 화면에서 화물을 드래그하면 됩니다." : bad >= 0 ? `❌ ${bad + 1}단계에서 막혔습니다 — 위 → 안내대로 고친 뒤 다시 해 보세요.` : on ? "진행 중…" : "「사운드 테스트 시작」을 누르세요.";
+      $("stDiag").value = diag(); const mini = $("stMini"); if (mini) mini.textContent = on || tries.length ? "사운드 테스트: " + sts.map(x => ICON[x || "wait"]).join("") : "";
+      $("btnStStart").textContent = on ? "다시 시작" : "사운드 테스트 시작";
+    }
+    function diag() {
+      const tr = tries[tries.length - 1], it = picked(), vt = stream && stream.getVideoTracks()[0], surf = vt && vt.getSettings ? vt.getSettings().displaySurface : "";
+      return [`[행상도우미 사운드테스트] ${new Date().toLocaleString("ko-KR", { hour12: false })}`, `브라우저 ${browser}`,
+        `소스 ${stream ? (vt ? "화면공유(" + (surf || "?") + ")" : "장치") : "없음"} · 오디오트랙 ${stream && stream.getAudioTracks().length ? "있음" : "없음"} · ${ctx ? sr + "Hz " + ctx.state : "-"}`,
+        `레벨 최대 ${f0(lvl.max)}dB 평균 ${lvl.n ? f0(lvl.sum / lvl.n) : "-"}dB · 기준선 ${f0(dB(curThr))}dB · 넘은비율 ${hist.length ? Math.round(100 * hist.reduce((a, b) => a + b, 0) / hist.length) : 0}%`,
+        `감도 ${sens}/7 · 증폭 ×${GAINS[gainIdx]}`, `단계 ${STEPS.map((_, i) => `${i + 1}${{ ok: "O", fail: "X", warn: "!", run: "…", wait: "-" }[(s[i] || {}).st || "wait"]}`).join(" ")}`,
+        `매칭 ${tries.length}회${tr ? ": " + tr.rows.slice(0, 3).map(r => `${sndName(r.key)} ${r.score}`).join(", ") + (tr.strong ? "" : " (약함)") : ""}${it ? ` · 옮긴 아이템 ${koName(it.name)} ${rankOf(tr ? tr.rows : [], it) + 1 || "순위밖"}위` : ""}`].join("\n");
+    }
+    reset();
+    const dl = $("stItems"); for (const i of db.items.concat(db.special_items)) { const o = document.createElement("option"); o.value = koName(i.name); dl.appendChild(o); }
+    $("btnStStart").onclick = () => start(); $("btnStStop").onclick = () => stop();
+    $("stItem").addEventListener("change", () => { judge(); render(); });
+    $("btnStCopy").onclick = async () => { const tx = diag(); try { await navigator.clipboard.writeText(tx); $("btnStCopy").textContent = "복사됨 ✔"; } catch (e) { $("stDiag").select(); document.execCommand("copy"); $("btnStCopy").textContent = "복사됨"; } setTimeout(() => { $("btnStCopy").textContent = "진단 글 복사"; }, 1500); };
+    document.querySelectorAll(".btnSoundTest").forEach(b => b.addEventListener("click", () => { try { window.focus(); } catch (e) {} start(); }));
+    render();
+    return { get on() { return on; }, feed, start, stop, noAudio: () => { noAudioErr = true; }, state: () => ({ steps: STEPS.map((_, i) => s[i]), tries, diag: diag() }) };
+  })();
+
   // 테스트용 훅 (콘솔): 원본 효과음을 오프라인으로 인식
-  window.MH_TEST = { match: (x, s, bg) => match(x, s, bg || 0, false), engine, showRows, b64ToBuf, GRID, setTarget: t => { pendingTarget = t; },
+  window.MH_TEST = { ST, match: (x, s, bg) => match(x, s, bg || 0, false), engine, showRows, b64ToBuf, GRID, setTarget: t => { pendingTarget = t; },
     // 테스트용: 감시 상태 흉내 + 소리 사건 주입
     sim: { listen: v => { active = v; scanning = v; GRID.refresh(); }, event: (rows, id) => { sampleClock = Math.max(sampleClock, 48000 * 10); sr = sr || 48000; tgtHist.push({ t: audioNow() - 0.3, tgt: GRID.targetNow() }); onSoundEvent({ id: id || Math.random(), key: rows[0].key, at: audioNow() - 0.3, score: rows[0].score, rows, updated: false }, "테스트", 0); GRID.refresh(); }, votes } };
 })();

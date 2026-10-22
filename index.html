@@ -36,6 +36,16 @@
   </div>
 </section>
 
+<section class="panel" id="stPanel">
+  <div class="res-head"><h2>사운드 테스트 (창고에서)</h2><span class="small muted">상인 화면 없이 소리가 제대로 인식되는지 단계별로 확인합니다. 격자 인식은 필요 없습니다.</span></div>
+  <div class="row"><button id="btnStStart" class="primary">사운드 테스트 시작</button><button id="btnStStop">멈추기</button>
+    <input id="stItem" list="stItems" placeholder="(선택) 옮긴 아이템 이름" autocomplete="off"><datalist id="stItems"></datalist></div>
+  <ol id="stSteps" class="ststeps"></ol>
+  <div id="stMatch" class="stmatch"></div>
+  <div id="stSummary" class="stsum"></div>
+  <div class="row"><textarea id="stDiag" class="stdiag" readonly rows="7"></textarea></div>
+  <div class="row small"><button id="btnStCopy">진단 글 복사</button><span class="muted">잘 안 되면 이 글을 복사해서 방송인에게 보내 주세요.</span></div>
+</section>
 <section class="panel" id="gridGuide">
   <h2>화물 격자 쓰는 법</h2>
   <ol class="steps">
@@ -70,7 +80,7 @@
 <section class="panel" id="results">
   <div class="res-head">
     <h2>후보</h2>
-    <span id="stateBadge" class="badge off">대기</span>
+    <span id="stateBadge" class="badge off">대기</span><button class="btnSoundTest" title="메인 창에서 창고 사운드 테스트를 시작">사운드 테스트</button><span id="stMini" class="small"></span>
     <button class="btnFullReset" title="격자 기록·이름표·모은 소리 점수·크기 필터를 모두 비움">전체 리셋</button>
   </div>
   <div id="miniBar" class="minibar" hidden>
