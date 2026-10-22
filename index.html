@@ -63,10 +63,15 @@
   <p class="hint">F8과 단축키는 이 페이지(또는 작은 창)에 포커스가 있을 때만 작동합니다. 게임 중에는 자동 감지를 켜 두세요.</p>
 </section>
 
+<section class="panel" id="recent">
+  <div class="res-head"><h2>방금 난 소리</h2><span id="recentHead" class="small muted">아직 소리 없음</span><button class="btnFullReset" title="격자 기록·이름표·모은 소리 점수·크기 필터를 모두 비움">전체 리셋</button></div>
+  <div id="recentCards" class="recentcards"><div class="muted">화물을 드래그하면 여기에 그 화물 크기에 맞는 후보가 바로 뜹니다.</div></div>
+</section>
 <section class="panel" id="results">
   <div class="res-head">
     <h2>후보</h2>
     <span id="stateBadge" class="badge off">대기</span>
+    <button class="btnFullReset" title="격자 기록·이름표·모은 소리 점수·크기 필터를 모두 비움">전체 리셋</button>
   </div>
   <div id="miniBar" class="minibar" hidden>
     <span id="miniState" class="small">대기</span>
@@ -92,6 +97,7 @@
       <button data-size="1x1">1×1</button><button data-size="1x2">1×2</button><button data-size="2x1">2×1</button><button data-size="2x2">2×2</button><button data-size="2x3">2×3</button><button data-size="3x2">3×2</button><button data-size="del">지우기</button>
       <button id="btnGridReset">격자 초기화</button>
     </div>
+    <div id="cargoBar" class="small cargobar" hidden><span id="cargoBarText"></span> <button id="btnCargoReset">이 화물 리셋</button></div>
     <div id="gridMap" class="gridmap"></div>
     <div id="gridLegend" class="small muted">색: <b style="color:#d4af37">금색</b> · <b style="color:#d9534f">빨강</b> · <b style="color:#a06cd5">보라</b> · 빨간 테두리 = 빨강 가능 · 100% = 확정 · ✓ = 드래그로 확정 · 노란 테두리 = 지금 마우스/드래그 중인 화물</div>
   </div>

@@ -101,7 +101,7 @@
   // 그 시각에 마우스/드래그 중이던 화물에 붙임. 같은 화물에서 여러 번 나면 점수를 모음(평균)
   const SCAN_WIN = 1.0, SCAN_PERIOD = 0.2;
   const scanner = new MHEvents.EventScanner({ minScore: GOOD_ENOUGH_SCORE }), votes = new MHEvents.CargoVotes();
-  let scanning = false, tgtHist = [], votesEpoch = -1;
+  let scanning = false, tgtHist = [], votesEpoch = -1, flash = { key: "", t: -1e9 };
   const audioNow = () => sampleClock / sr;
   function recordTarget() { const t = audioNow(); tgtHist.push({ t, tgt: GRID.targetNow() }); while (tgtHist.length && t - tgtHist[0].t > 5) tgtHist.shift(); }
   function targetAt(at) { let best = null; for (const h of tgtHist) { if (h.t <= at + 0.12) best = h; else break; } return best ? best.tgt : null; } // 소리 시작 직후까지의 대상
@@ -132,6 +132,8 @@
     const rows = ck === "_none" ? ev.rows : votes.add(ck, ev.id, ev.rows);
     const lat = audioNow() - ev.at;
     pendingTarget = tgt;
+    if (ck !== "_none") flash = { key: ck, t: performance.now() / 1000 };
+    renderRecent(rows, tgt, lat, ck !== "_none" ? votes.count(ck) : 1);
     showRows(rows, reason, `소리 ${ev.updated ? "보강" : "감지"} · 소리 시작부터 ${lat.toFixed(2)}초${ck !== "_none" && votes.count(ck) > 1 ? ` · 같은 화물 소리 ${votes.count(ck)}번 모음` : ""}`);
   }
 
@@ -252,6 +254,28 @@
     } catch (e) { setStatus("인식 오류: " + e.message); }
     finally { busy = false; if (active) badge("on", "감시 중"); else badge("off", "대기"); }
   }
+
+  // ---------- 방금 난 소리 (큰 화면 패널) ----------
+  function renderRecent(rows, tgt, lat, nVotes) {
+    let cands = engine.resolve(rows); const sized = tgt && !tgt.cellOnly && tgt.w && tgt.h;
+    if (sized) cands = cands.filter(c => { const z = MHGrid.itemSize(c); return z && z[0] === tgt.w && z[1] === tgt.h; });
+    const tot = cands.reduce((a, c) => a + Math.max(1, c.score), 0) || 1;
+    $("recentHead").textContent = `${new Date().toLocaleTimeString("ko-KR", { hour12: false })} · 소리 시작부터 ${lat.toFixed(2)}초 · ${sized ? `${tgt.w}×${tgt.h} 화물 (${tgt.c + 1}열) 크기만` : "화물 크기 모름 · 모든 크기"}${nVotes > 1 ? ` · 같은 화물 소리 ${nVotes}번 모음` : ""}`;
+    const box = $("recentCards"); box.innerHTML = "";
+    if (!cands.length) { box.innerHTML = `<div class="muted">${sized ? `${tgt.w}×${tgt.h} 크기 후보가 없습니다.` : "후보 없음"}</div>`; return; }
+    for (const c of cands.slice(0, 8)) {
+      const col = QUALITY_COLOR[c.quality] || "#8a93a3", z = MHGrid.itemSize(c);
+      const el = document.createElement("div"); el.className = "rcard"; el.style.borderColor = col;
+      el.innerHTML = `<img alt=""><div class="rn"></div><div class="rm"></div><div class="rs"></div>`;
+      const im = el.querySelector("img"); im.src = "assets/images/" + encodeURIComponent(c.image); im.onerror = () => { im.style.visibility = "hidden"; };
+      el.querySelector(".rn").textContent = koName(c.name); el.querySelector(".rn").style.color = col;
+      el.querySelector(".rm").textContent = `${ko(QUALITY_KO, c.quality)} · ${z ? z[0] + "×" + z[1] : c.slot + "칸"}`;
+      el.querySelector(".rs").textContent = `${c.score}점 · ${Math.round(100 * Math.max(1, c.score) / tot)}%`;
+      box.appendChild(el);
+    }
+  }
+  function doFullReset() { votes.clear(); listSize = null; allCands = []; lastSig = ""; rebuildCombos(); applyFilter(); $("recentCards").innerHTML = '<div class="muted">아직 소리 없음</div>'; $("recentHead").textContent = "전체 리셋됨"; GRID.fullReset(); }
+  document.querySelectorAll(".btnFullReset").forEach(b => b.addEventListener("click", () => doFullReset()));
 
   // ---------- 결과 표시 (ui.Panel) ----------
   let allCands = [], lastSig = "", history = [], pendingTarget = null;
@@ -402,7 +426,8 @@
     function render() {
       const L = tracker.list(), [r0, r1raw] = tracker.rows(), ncol = tracker.ncol || 9, r1 = Math.max(r1raw, r0 + 5);
       const tg = tracker.target(now()), tkey = tg ? tg.key : "";
-      const sig = JSON.stringify([L.map(k => [k.key, k.w, k.h, k.item && [k.item.name, k.item.conf, k.item.sure]]), r0, r1, ncol, tkey, pick, size]);
+      const tnow = performance.now() / 1000, lkey = pick || tkey, listening = !!(active && scanning && lkey), flashKey = tnow - flash.t < 1.2 ? flash.key : "";
+      const sig = JSON.stringify([L.map(k => [k.key, k.w, k.h, k.item && [k.item.name, k.item.conf, k.item.sure], votes.count(k.key)]), r0, r1, ncol, tkey, pick, size, listening, flashKey]);
       if (lastDet) info(`화물창 인식: ${lastDet.ncol}열 · 화물 ${L.length}개 · 기록된 줄 ${r1raw - r0 + 1}줄${tg ? ` · 대상 ${tg.c + 1}열 ${tg.r - r0 + 1}줄` : ""}`);
       else if (running && frames > FPS * 2) info(`화면 읽는 중… 상인 화물창이 보이지 않습니다. (기록 ${L.length}개 유지)`);
       if (sig === lastSig) return; lastSig = sig;
@@ -411,7 +436,7 @@
       const pos = (el, c, r, w, h) => { el.style.left = `calc(var(--cs) * ${c})`; el.style.top = `calc(var(--cs) * ${r - r0})`; el.style.width = `calc(var(--cs) * ${w})`; el.style.height = `calc(var(--cs) * ${h})`; };
       for (let r = r0; r <= r1; r++) for (let c = 0; c < ncol; c++) { const el = document.createElement("div"); el.className = "cell"; el.dataset.c = c; el.dataset.r = r; pos(el, c, r, 1, 1); g.appendChild(el); }
       for (const k of L) {
-        const el = document.createElement("div"); el.className = "cargo" + (k.manual ? " manual" : "") + (k.key === tkey ? " tgt" : "") + (k.key === pick ? " pick" : "");
+        const el = document.createElement("div"); el.className = "cargo" + (k.manual ? " manual" : "") + (k.key === tkey ? " tgt" : "") + (k.key === pick ? " pick" : "") + (listening && k.key === lkey ? " listen" : "") + (k.key === flashKey ? " flash" : "");
         el.dataset.c = k.c; el.dataset.r = k.r; el.dataset.key = k.key; pos(el, k.c, k.r, k.w, k.h);
         const it = k.item;
         if (it) { const col = QUALITY_COLOR[it.quality] || "#8a93a3"; el.style.background = col + "33"; el.style.borderColor = col; if (it.red) el.classList.add("red");
@@ -424,10 +449,17 @@
           el.querySelector(".nm").textContent = it.ko; el.querySelector(".pr").textContent = priceText(it.price); el.querySelector(".pc").textContent = pct; el.querySelector(".pc").style.background = col; }
         else { el.title = "아직 모름 — 드래그하면 소리로 맞힙니다"; el.innerHTML = `<span class="q">?</span>`; }
         const sz = document.createElement("span"); sz.className = "sz"; sz.textContent = `${k.w}×${k.h}`; el.appendChild(sz);
+        if (listening && k.key === lkey) { const b = document.createElement("span"); b.className = "lbadge"; b.textContent = "듣는 중"; el.appendChild(b); }
+        const nv = votes.count(k.key); if (nv) { const b = document.createElement("span"); b.className = "nbadge"; b.title = `이 화물에서 모은 소리 ${nv}번`; b.textContent = `🔊${nv}`; el.appendChild(b); }
         g.appendChild(el);
       }
       box.appendChild(g);
+      const pk = pick && L.find(o => o.key === pick), bar = $("cargoBar");
+      if (pk) { bar.hidden = false; $("cargoBarText").textContent = `고른 화물: ${pk.c + 1}열 ${pk.r - r0 + 1}줄 · ${pk.w}×${pk.h}${pk.item ? " · " + pk.item.ko : ""}${votes.count(pk.key) ? ` · 소리 ${votes.count(pk.key)}번` : ""}`; } else bar.hidden = true;
     }
+    // 이 화물만 리셋: 이름표·모은 소리 점수·직접 지정 크기·그 자리 기록을 지워 다시 인식하게 함
+    function resetCargo(key) { tracker.items.delete(key); tracker.manual.delete(key); for (const [kk, o] of tracker.obs) if (`${o.r},${o.c}` === key) tracker.obs.delete(kk); votes.clear(key); tracker._list = null; pick = null; lastSig = ""; render(); info("이 화물을 리셋했습니다. 다시 드래그하면 새로 인식합니다."); }
+    $("btnCargoReset").onclick = () => { if (pick) resetCargo(pick); };
     $("gridMap").addEventListener("click", e => {
       const el = e.target.closest("[data-c]"); if (!el) return; const c = +el.dataset.c, r = +el.dataset.r, key = el.dataset.key;
       if (size === "del") { if (key) { tracker.removeManual(key); tracker.items.delete(key); for (const [kk, o] of tracker.obs) if (`${o.r},${o.c}` === key) tracker.obs.delete(kk); tracker._list = null; } }
@@ -438,8 +470,10 @@
     });
     $("gridBox").querySelectorAll("[data-size]").forEach(b => b.addEventListener("click", () => { size = size === b.dataset.size ? null : b.dataset.size; $("gridBox").querySelectorAll("[data-size]").forEach(x => x.classList.toggle("sel", x.dataset.size === size)); info(size ? (size === "del" ? "지울 화물을 누르세요." : `${size.replace("x", "×")} 크기: 화물의 왼쪽 위 칸을 누르세요. (버튼을 다시 누르면 해제)`) : "직접 지정 해제"); if (size && size !== "del") { const [w, h] = size.split("x").map(Number); setListSize(w, h, "크기 버튼"); } lastSig = ""; render(); }));
     $("btnGridReset").onclick = () => { tracker.reset(); pick = null; lastSig = ""; render(); info("격자를 비웠습니다."); };
+    function refresh() { lastSig = ""; render(); }
+    function fullReset() { tracker.reset(); pick = null; size = null; $("gridBox").querySelectorAll("[data-size]").forEach(x => x.classList.remove("sel")); lastSig = ""; render(); info("전체 리셋: 격자 기록·이름표·모은 소리 점수·크기 필터를 모두 비웠습니다."); }
     render();
-    return { start, stop, onResult, targetNow, info, tracker };
+    return { start, stop, onResult, targetNow, info, tracker, refresh, fullReset, setPick: k => { pick = k; refresh(); } };
   })();
 
   // ---------- 시작 ----------
@@ -465,5 +499,7 @@
   document.addEventListener("visibilitychange", keepAlive); window.addEventListener("blur", keepAlive);
 
   // 테스트용 훅 (콘솔): 원본 효과음을 오프라인으로 인식
-  window.MH_TEST = { match: (x, s, bg) => match(x, s, bg || 0, false), engine, showRows, b64ToBuf, GRID, setTarget: t => { pendingTarget = t; } };
+  window.MH_TEST = { match: (x, s, bg) => match(x, s, bg || 0, false), engine, showRows, b64ToBuf, GRID, setTarget: t => { pendingTarget = t; },
+    // 테스트용: 감시 상태 흉내 + 소리 사건 주입
+    sim: { listen: v => { active = v; scanning = v; GRID.refresh(); }, event: (rows, id) => { sampleClock = Math.max(sampleClock, 48000 * 10); sr = sr || 48000; tgtHist.push({ t: audioNow() - 0.3, tgt: GRID.targetNow() }); onSoundEvent({ id: id || Math.random(), key: rows[0].key, at: audioNow() - 0.3, score: rows[0].score, rows, updated: false }, "테스트", 0); GRID.refresh(); }, votes } };
 })();
