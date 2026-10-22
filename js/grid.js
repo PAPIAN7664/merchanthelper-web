@@ -38,7 +38,7 @@
   function fill(g, w, x0, x1, y0, y1, t) { let s = 0, n = 0; for (let y = y0 | 0; y < y1; y++) for (let x = x0 | 0; x < x1; x++) { if (g[y * w + x] >= t) s++; n++; } return n ? s / n : 0; }
   function mean(g, w, x0, x1, y0, y1) { let s = 0, n = 0; for (let y = y0 | 0; y < y1; y++) for (let x = x0 | 0; x < x1; x++) { s += g[y * w + x]; n++; } return n ? s / n : 0; }
 
-  function detect(g, w, h) {
+  function detect(g, w, h, hintLevel) {
     const { V, H } = lineMaps(g, w, h);
     const S = h / 720, pmin = 26 * S, pmax = 70 * S;
     const col = new Float32Array(w); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) col[x] += V[y * w + x];
@@ -55,7 +55,15 @@
     const X = c => Math.round(gx0 + c * p), Y = r => Math.round(gy0 + r * py);
     const val = [], occ = [];
     // 빈 칸은 거의 검정(4~5), 화물 칸은 회색(15~17). 글자/채팅이 겹쳐도 되도록 '밝은 픽셀 비율'로 판단
-    for (let r = 0; r < nrow; r++) for (let c = 0; c < ncol; c++) { const v = fill(g, w, X(c) + p * .15, X(c + 1) - p * .15, Y(r) + py * .15, Y(r + 1) - py * .15, 10); val.push(v); occ.push(v >= 0.55); }
+    // 화물 칸은 거의 한 가지 회색(중앙값). 녹화/설정/해상도마다 그 밝기가 달라서(15~40) 프레임마다 화물 밝기를 찾고 그 80% 이상이면 화물.
+    // 빈 칸은 반투명이라 뒤 배경이 비쳐 보여도 화물보다 어둡다.
+    const med = [];
+    for (let r = 0; r < nrow; r++) for (let c = 0; c < ncol; c++) { const x0 = Math.round(X(c) + p * .15), x1 = Math.round(X(c + 1) - p * .15), y0 = Math.round(Y(r) + py * .15), y1 = Math.round(Y(r + 1) - py * .15); const hist = new Uint32Array(256); let n = 0; for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { hist[g[y * w + x]]++; n++; } let k = 0, a = 0; while (k < 255 && (a += hist[k]) < n / 2) k++; med.push(k); val.push(fill(g, w, x0, x1, y0, y1, 10)); }
+    let L = 0, best = 3; for (const m of med) { if (m < 8) continue; let cnt = 0; for (const q of med) if (Math.abs(q - m) <= 2) cnt++; if (cnt > best || (cnt === best && m > L)) { best = cnt; L = m; } } // 가장 많은 칸이 가진 밝기 = 화물 밝기 (마우스 강조 칸은 소수라 제외됨)
+    // 화면이 비어 있으면(스크롤해서 빈 줄만 보임) 가장 많은 밝기가 빈 칸 배경이 됨 → 최근에 본 화물 밝기(hintLevel)보다 어두우면 그걸 씀
+    const ref = Math.max(L, hintLevel || 0);
+    const thr = ref ? Math.max(8, ref * 0.8) : 12;
+    for (let i = 0; i < med.length; i++) occ.push(med[i] >= thr);
     // 테두리 선이 없으면 같은 화물
     const par = val.map((_, i) => i); const find = i => par[i] === i ? i : (par[i] = find(par[i]));
     for (let r = 0; r < nrow; r++) for (let c = 0; c < ncol; c++) {
@@ -71,12 +79,12 @@
     for (let i = 0; i < dark.length; i++) dark[i] = 1 - dark[i];
     // 스크롤 추적용 세로 프로필
     const prof = new Float32Array(h); for (let y = 0; y < h; y++) { let s = 0; for (let x = gx0; x < gx1; x += 2) s += g[y * w + x]; prof[y] = s / ((gx1 - gx0) / 2); }
-    return { gx0, gy0, p, py, ncol, nrow, occ, val, dark, text, cargos, prof, w, h };
+    return { gx0, gy0, p, py, ncol, nrow, occ, val, med, level: L, dark, text, cargos, prof, w, h };
   }
 
   // 여러 프레임을 하나의 전체 격자로 합침 (스크롤 추적 + 프레임 투표로 깜빡임 제거)
   class GridTracker {
-    constructor() { this.reset(); }
+    constructor() { this.level = 0; this.reset(); }
     reset() { this.cells = new Map(); this.obs = new Map(); this.manual = new Map(); this.items = new Map(); this.base = null; this.scroll = 0; this.prev = null; this.ncol = 0; this.hover = null; this.hoverT = -1e9; this.drag = null; this.dragT = -1e9; this.lostT = null; this.lastOff = undefined; this.bad = 0; this.changedScreen = false; this.frames = 0; this.seen = 0; this._list = null; }
     shift(a, b, y0, y1) {
       const span = y1 - y0, lim = Math.round(span * 0.75); let best = 0, bs = 1e9;
@@ -86,6 +94,8 @@
     stableOcc(key) { const o = this.cells.get(key); return o ? o.s > 1.5 : false; }
     push(det, t, g) {
       this.frames++;
+      // 화물 밝기 기억: 큰 값은 바로, 작은 값은 아주 천천히 따라감 (약 1분에 10%)
+      if (det && det.level) this.level = det.level >= this.level ? det.level : Math.max(det.level, this.level * 0.9997);
       if (!det) { if (this.lostT === null) this.lostT = t; this.prev = null; return null; }
       // 화물창이 5초 넘게 안 보였다가 다시 나오면 새 화물창으로 보고 자동 초기화 (수동 기록이 없을 때만)
       if (this.lostT !== null && t - this.lostT > 5 && !this.manual.size && !this.items.size) this.reset();
@@ -139,7 +149,7 @@
         // 보이는 범위 맨 위/아래 줄에 걸친 화물은 화면 밖으로 잘렸을 수 있음(스크롤 중 3×2가 3×1로 보이는 등) → 따로 셈
         const key = `${k.r + off},${k.c},${k.w},${k.h}`; const o = this.obs.get(key) || { c: k.c, r: k.r + off, w: k.w, h: k.h, n: 0, ni: 0 }; o.n++; if (!k.edge) o.ni++; o.t = t; this.obs.set(key, o);
         // 같은 자리에 지금 보이는 화물과 겹치는 다른 기록은 표를 깎음 (화물을 사서 바뀌었거나 다른 상인 화면 — 칸이 모두 차 있으면 화면 바뀜 감지가 안 됨)
-        if (!k.edge) for (const [kk, q] of this.obs) if (kk !== key && q.c < o.c + o.w && o.c < q.c + q.w && q.r < o.r + o.h && o.r < q.r + q.h) { q.n -= 2; if (q.ni > q.n) q.ni = Math.max(0, q.n); if (q.n <= 0) this.obs.delete(kk); }
+        if (!k.edge) for (const [kk, q] of this.obs) if (kk !== key && q.c < o.c + o.w && o.c < q.c + q.w && q.r < o.r + o.h && o.r < q.r + q.h && !(q.c <= o.c && q.r <= o.r && q.c + q.w >= o.c + o.w && q.r + q.h >= o.r + o.h) && !(o.c <= q.c && o.r <= q.r && o.c + o.w >= q.c + q.w && o.r + o.h >= q.r + q.h)) { /* 한쪽이 다른 쪽을 품는 경우(선 하나를 놓쳐 나뉘었다 합쳐졌다 함)는 깎지 않고 표 수로 고름 */ q.n -= 2; if (q.ni > q.n) q.ni = Math.max(0, q.n); if (q.n <= 0) this.obs.delete(kk); }
       }
       this._list = null;
       if (hoverCell) { const [cc, rr] = hoverCell; const hit = this.list().find(k => cc >= k.c && cc < k.c + k.w && rr + off >= k.r && rr + off < k.r + k.h); this.hover = hit ? hit.key : `${rr + off},${cc}`; this.hoverT = t; det.hoverCell = [cc, rr]; }

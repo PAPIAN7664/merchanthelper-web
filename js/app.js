@@ -45,7 +45,7 @@
   let ctx = null, stream = null, srcNode = null, procNode = null, sinkNode = null, sr = 48000;
   let ring = null, ringPos = 0, ringFilled = 0, sinceUpdate = 0, latest = null; // latest = {win, bg, t}
   let sampleClock = 0, waiters = [], meterAcc = 0;
-  let active = false, busy = false, lastAudioTrigger = 0, prevPeak = 0, levelPeak = 0;
+  let active = false, busy = false, lastAudioTrigger = 0, prevPeak = 0, levelPeak = 0, levelNow = 0, heardT = -1e9;
 
   function resetRing() { if (ring) ring.fill(0); ringPos = 0; ringFilled = 0; sinceUpdate = 0; latest = null; prevPeak = 0; }
   function ringWindow() { const n = ring.length; if (ringFilled < n) return ring.slice(0, ringFilled); const out = new Float32Array(n); out.set(ring.subarray(ringPos)); out.set(ring.subarray(0, ringPos), n - ringPos); return out; }
@@ -66,15 +66,17 @@
     if ($("optAutoTrigger").checked) maybeAudioTrigger(win, bg);
   }
   // main.AudioFeed._maybe_audio_trigger
+  // 새로 들어온 0.18초 구간이 바로 앞 0.5초보다 확 커지면 트리거.
+  // (예전: 1.5초 창 전체 최대값끼리 비교 → 배경 잡음 봉우리가 기준의 60%만 넘어도 조용한 화물 소리를 막았음)
+  function framePeak(w, a, b, fr) { let pk = 0; for (let i = Math.max(0, a); i + fr <= b; i += fr) { let s = 0; for (let j = 0; j < fr; j++) { const v = w[i + j]; s += v * v; } pk = Math.max(pk, Math.sqrt(s / fr)); } return pk; }
+  function audioOnset(w, bg, sr) { const fr = Math.round(sr / 50), n = w.length, nw = Math.round(UPDATE_SECONDS * sr), ob = Math.round(0.5 * sr);
+    const now = framePeak(w, n - nw, n, fr), before = framePeak(w, n - nw - ob, n - nw, fr), thr = Math.max(0.0012, bg * 3.5);
+    return { now, before, thr, hit: now >= thr && now >= before * 2 }; }
   function maybeAudioTrigger(w, bg) {
     const now = performance.now() / 1000;
-    if (now - lastAudioTrigger < MIN_INTERVAL) return;
-    const fr = Math.round(sr / 50), nf = Math.floor(w.length / fr); let peak = 0;
-    for (let i = 0; i < nf; i++) { let s = 0; for (let j = 0; j < fr; j++) { const v = w[i * fr + j]; s += v * v; } peak = Math.max(peak, Math.sqrt(s / fr)); }
-    const thr = Math.max(0.0012, bg * 3.5);
-    if (peak < thr) { prevPeak = peak; return; }
-    if (prevPeak >= thr * 0.6) { prevPeak = peak; return; }
-    prevPeak = peak; lastAudioTrigger = now;
+    const o = audioOnset(w, bg, sr); levelNow = o.now;
+    if (now - lastAudioTrigger < MIN_INTERVAL || !o.hit) return;
+    lastAudioTrigger = now; heardT = now;
     handleTrigger("소리 감지");
   }
 
@@ -205,7 +207,8 @@
     const cands = engine.resolve(rows);
     const tgt = pendingTarget; pendingTarget = null;
     if (cands.length && tgt && !tgt.cellOnly && tgt.w && tgt.h) listSize = { w: tgt.w, h: tgt.h, src: tgt.manualPick ? "고른 화물" : tgt.dragged ? "드래그한 화물" : "마우스 올린 화물" }, lastSig = ""; // 크기가 바뀌면 목록 다시 그림
-    if (cands.length) GRID.onResult(cands, tgt);
+    // 점수가 낮은 결과(말소리·음악을 억지로 맞춘 것)는 격자 화물에 붙이지 않음
+    if (cands.length && cands[0].score >= 60) GRID.onResult(cands, tgt);
     if (!cands.length && allCands.length) { setStatus(`이번에는 소리를 찾지 못해 이전 후보를 유지합니다. (${reason || "결과 없음"}) · ${trace}`); return; } // 원본의 '粘滞'
     setStatus((reason || (cands.length ? "" : "후보 없음")) + " · " + trace);
     const sig = JSON.stringify(cands.map(c => [c.name, c.score]));
@@ -308,7 +311,7 @@
       ensureCanvas(dw, dh); c2d.drawImage(src, sx, 0, sw, H, 0, 0, dw, dh);
       const d = c2d.getImageData(0, 0, dw, dh).data; if (!gray || gray.length !== dw * dh) gray = new Uint8Array(dw * dh);
       for (let i = 0, j = 0; i < gray.length; i++, j += 4) gray[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
-      const det = MHGrid.detect(gray, dw, dh); tracker.push(det, now(), gray); frames++; lastDet = det;
+      const det = MHGrid.detect(gray, dw, dh, tracker.level); tracker.push(det, now(), gray); frames++; lastDet = det;
       if (det && !found) { found = true; }
       render();
     }
@@ -393,8 +396,11 @@
   applyFilter();
   refreshDevices(false);
   function drawMeter() {
-    const w = Math.min(100, levelPeak * 100) + "%"; $("meterBar").style.width = w; $("miniMeterBar").style.width = w;
-    $("miniLevel").textContent = ctx ? `입력 ${levelPeak.toFixed(3)} · ${ctx.state === "running" ? "오디오 들어오는 중" : "오디오 " + ctx.state}` : "소리 소스 없음";
+    // dB 눈금(-60~0 dB): 화물 소리는 -45~-35 dB 정도로 작아서 직선 눈금이면 막대가 안 보였음
+    const db = levelPeak > 0 ? 20 * Math.log10(levelPeak) : -99, w = Math.max(0, Math.min(100, (db + 60) / 60 * 100)) + "%"; $("meterBar").style.width = w; $("miniMeterBar").style.width = w;
+    const heard = performance.now() / 1000 - heardT < 1.2;
+    $("meterBar").style.background = $("miniMeterBar").style.background = heard ? "#ffd84a" : "";
+    $("miniLevel").textContent = ctx ? `입력 ${db > -99 ? db.toFixed(0) : "-∞"} dB · ${ctx.state !== "running" ? "오디오 " + ctx.state : heard ? "🔔 소리 들림 (인식 중)" : db < -70 ? "소리가 안 들어옴 — 공유 창에서 「시스템 오디오 공유」 확인" : "오디오 들어오는 중"}` : "소리 소스 없음";
   }
   setInterval(() => { if (!ctx || ctx.state !== "running") drawMeter(); }, 500);
   // 탭이 숨겨지거나 포커스를 잃어도 AudioContext 를 계속 깨워 둠
