@@ -88,3 +88,11 @@ body.pip .gridmap .cargo .nm{font-size:8px;line-height:11px}
 .tmtoggle{font-weight:bold;color:#ffcf6b;white-space:nowrap}.testpanel.open{border-style:solid}
 .stlogs{display:flex;flex-direction:column;gap:6px;max-height:520px;overflow:auto}.stlog{border:1px solid #3a3424;border-radius:6px;padding:6px}.stlh{font-size:13px;margin-bottom:4px}
 .srcmode label{margin-right:12px}.warnline{color:#ffb84a;font-weight:bold}.sth{white-space:pre-line}
+
+.gridmap .cargo.red{box-shadow:inset 0 0 0 3px var(--red);border-color:var(--red)!important}
+.gridmap .cargo .cbadge{position:absolute;left:2px;top:2px;background:var(--ok);color:#fff;font-size:10px;font-weight:700;padding:0 3px;border-radius:3px;z-index:3}
+.gridmap .cargo.ghost{opacity:.85;border-style:dashed}
+.checklog{max-height:220px;overflow:auto;margin-top:6px}
+.clrow{display:flex;align-items:center;gap:6px;padding:3px 4px;border-bottom:1px solid var(--line);font-size:13px}
+.clrow img{width:28px;height:28px;object-fit:contain}
+.clrow.red{border-left:3px solid var(--red)}

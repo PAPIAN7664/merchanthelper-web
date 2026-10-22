@@ -437,18 +437,40 @@
       // 화물 가로×세로와 정확히 같은 크기의 물품만. 맞는 게 없으면 넣지 않음 (다른 크기 물품을 붙이지 않음)
       let pool = MHGrid.fitCands(cands, tgt.w, tgt.h).filter(c => !c.sizeUnknown); const fit = true;
       if (!pool.length) { info(`소리 결과에 ${tgt.w}×${tgt.h} 크기 물품이 없어 격자에 넣지 않았습니다. (다른 화물 소리였을 수 있음)`); return; }
-      const total = pool.reduce((a, c) => a + Math.max(1, c.score), 0), top = pool[0];
-      const item = { w: tgt.w, h: tgt.h, name: top.name, ko: koName(top.name), quality: top.quality, price: top.reference_value_text || top.reference_value || "-", conf: Math.round(100 * Math.max(1, top.score) / total), image: top.image, n: pool.length, red: pool.some(c => c.quality === "红色"), sure: !!tgt.dragged || !!tgt.manualPick, fit, sizeUnknown: !!top.sizeUnknown, all: pool.slice(0, 5).map(c => koName(c.name)) };
-      tracker.assign(tgt.key, item); if (tgt.manualPick) pick = null; render();
+      const total = pool.reduce((a, c) => a + Math.max(1, c.score), 0), red = pool.some(c => c.quality === "红色");
+      // 이름표 규칙: 1위 소리 그룹(정확한 크기 후보 중)에 빨강이 딱 1개면 그 빨강(소리로 특정됨). 아니면 빨강을 뺀 최상위(금색 등), 빨강 가능성은 빨간 테두리로
+      const g0 = pool[0].sound_key, reds = pool.filter(c => c.sound_key === g0 && c.quality === "红色");
+      const top = reds.length === 1 ? reds[0] : (pool.find(c => c.quality !== "红色") || pool[0]), uniqRed = reds.length === 1;
+      const item = { w: tgt.w, h: tgt.h, name: top.name, ko: koName(top.name), quality: top.quality, price: top.reference_value_text || top.reference_value || "-", conf: Math.round(100 * Math.max(1, top.score) / total), image: top.image, n: pool.length, red, uniqRed, sure: !!tgt.dragged || !!tgt.manualPick, fit, sizeUnknown: !!top.sizeUnknown, all: pool.slice(0, 5).map(c => koName(c.name)) };
+      tracker.assign(tgt.key, item); item.checkedAt = Date.now();
+      checked.set(tgt.key, { key: tgt.key, r: tgt.r, c: tgt.c, w: tgt.w, h: tgt.h, item, t: new Date(), epoch: tracker.epoch, ok: true });
+      checkLog.unshift({ t: new Date(), r: tgt.r, c: tgt.c, w: tgt.w, h: tgt.h, ko: item.ko, quality: item.quality, red, uniqRed, image: item.image }); if (checkLog.length > 50) checkLog.pop(); renderCheckLog();
+      if (tgt.manualPick) pick = null; render();
       info(`${tgt.w}×${tgt.h} 화물 → ${item.ko} ${item.conf}%${fit ? "" : " (가로×세로가 맞는 후보가 없어 전체 후보 기준)"}`);
     }
     function priceText(p) { const n = Number(String(p).replace(/[^\d]/g, "")); return n ? (n >= 10000 ? Math.round(n / 1000) / 10 + "만" : n.toLocaleString("ko-KR")) : String(p); }
+    // 확인한 화물 이름표: 스크롤·다른 화물 소리·기록 교체에도 사라지지 않음. 같은 화물을 다시 확인할 때만 바뀜
+    const checked = new Map(), checkLog = [];
+    function syncChecked(L) {
+      for (const [k, e] of checked) {
+        if (e.epoch !== tracker.epoch) { e.epoch = tracker.epoch; e.ok = false; } // 구매·재배치 리셋: 같은 자리·크기가 다시 보일 때만 살림
+        const m = L.find(o => o.key === k);
+        if (m && m.w === e.w && m.h === e.h) { e.ok = true; if (!m.item) tracker.assign(k, e.item); }
+        else if (L.some(o => o.r < e.r + e.h && e.r < o.r + o.h && o.c < e.c + e.w && e.c < o.c + o.w)) checked.delete(k); // 그 자리에 다른 화물 → 지움
+      }
+    }
+    function renderCheckLog() { const box = $("checkLog"); if (!box) return; box.innerHTML = checkLog.length ? "" : '<div class="muted">아직 확인한 화물 없음</div>';
+      for (const e of checkLog.slice(0, 30)) { const d = document.createElement("div"); d.className = "clrow" + (e.red ? " red" : "");
+        d.innerHTML = '<img alt=""><span></span>'; const im = d.querySelector("img"); im.src = "assets/images/" + encodeURIComponent(e.image || ""); im.onerror = () => { im.style.visibility = "hidden"; };
+        d.querySelector("span").textContent = `${e.t.toLocaleTimeString("ko-KR", { hour12: false })} · ${e.c + 1}열 ${e.r + 1}줄 · ${e.w}×${e.h} · ${e.ko}${e.uniqRed ? " (빨강 확정)" : e.red ? " · 빨강 가능" : ""}`;
+        d.querySelector("span").style.color = QUALITY_COLOR[e.quality] || ""; box.appendChild(d); } }
     let lastSig = "";
     function render() {
-      const L = tracker.list(), [r0, r1raw] = tracker.rows(), ncol = tracker.ncol || 9, r1 = Math.max(r1raw, r0 + 5);
+      const L0 = tracker.list(); syncChecked(L0); const ghosts = [...checked.values()].filter(e => e.ok && !L0.some(o => o.key === e.key) && !L0.some(o => o.r < e.r + e.h && e.r < o.r + o.h && o.c < e.c + e.w && e.c < o.c + o.w)).map(e => ({ key: e.key, r: e.r, c: e.c, w: e.w, h: e.h, item: e.item, ghost: true }));
+      const L = L0.concat(ghosts), [r0, r1raw] = tracker.rows(), ncol = tracker.ncol || 9, r1 = Math.max(r1raw, r0 + 5);
       const tg = tracker.target(now()), tkey = tg ? tg.key : "";
       const tnow = performance.now() / 1000, lkey = pick || tkey, listening = !!(active && scanning && lkey), flashKey = tnow - flash.t < 1.2 ? flash.key : "";
-      const sig = JSON.stringify([L.map(k => [k.key, k.w, k.h, k.item && [k.item.name, k.item.conf, k.item.sure], votes.count(k.key)]), r0, r1, ncol, tkey, pick, size, listening, flashKey]);
+      const sig = JSON.stringify([L.map(k => [k.key, k.w, k.h, k.item && [k.item.name, k.item.conf, k.item.sure, k.item.checkedAt], votes.count(k.key), !!k.ghost, checked.has(k.key)]), r0, r1, ncol, tkey, pick, size, listening, flashKey]);
       if (lastDet) info(`화물창 인식: ${lastDet.ncol}열 · 화물 ${L.length}개 · 기록된 줄 ${r1raw - r0 + 1}줄${tg ? ` · 대상 ${tg.c + 1}열 ${tg.r - r0 + 1}줄` : ""}`);
       else if (running && frames > FPS * 2) info(`화면 읽는 중… 상인 화물창이 보이지 않습니다. (기록 ${L.length}개 유지)`);
       if (sig === lastSig) return; lastSig = sig;
@@ -459,7 +481,7 @@
       for (const k of L) {
         const el = document.createElement("div"); el.className = "cargo" + (k.manual ? " manual" : "") + (k.key === tkey ? " tgt" : "") + (k.key === pick ? " pick" : "") + (listening && k.key === lkey ? " listen" : "") + (k.key === flashKey ? " flash" : "");
         el.dataset.c = k.c; el.dataset.r = k.r; el.dataset.key = k.key; pos(el, k.c, k.r, k.w, k.h);
-        const it = k.item;
+        const it = k.item || (checked.get(k.key) && checked.get(k.key).w === k.w && checked.get(k.key).h === k.h ? checked.get(k.key).item : null); if (k.ghost) el.classList.add("ghost");
         if (it) { const col = QUALITY_COLOR[it.quality] || "#8a93a3"; el.style.background = col + "33"; el.style.borderColor = col; if (it.red) el.classList.add("red");
           el.title = `${it.ko} (${ko(QUALITY_KO, it.quality)})${it.sizeUnknown ? " · 크기 정보 없음" : ""}\n참고 가치 ${it.price}\n후보 ${it.n}개: ${it.all.join(", ")}`;
           const pct = (it.n === 1 ? "100%" : it.conf + "%") + (it.sure ? " ✓" : "");
@@ -469,6 +491,7 @@
           if (k.w * k.h === 1) el.classList.add("one");
           el.querySelector(".nm").textContent = it.ko; el.querySelector(".pr").textContent = priceText(it.price); el.querySelector(".pc").textContent = pct; el.querySelector(".pc").style.background = col; }
         else { el.title = "아직 모름 — 드래그하면 소리로 맞힙니다"; el.innerHTML = `<span class="q">?</span>`; }
+        if (checked.has(k.key) && it) { el.classList.add("checked"); const cb = document.createElement("span"); cb.className = "cbadge"; cb.title = "확인한 화물 — 다시 드래그하면 새 결과로 바뀝니다"; cb.textContent = it.uniqRed ? "✓빨강" : "✓"; el.appendChild(cb); }
         const sz = document.createElement("span"); sz.className = "sz"; sz.textContent = `${k.w}×${k.h}`; el.appendChild(sz);
         if (listening && k.key === lkey) { const b = document.createElement("span"); b.className = "lbadge"; b.textContent = "듣는 중"; el.appendChild(b); }
         const nv = votes.count(k.key); if (nv) { const b = document.createElement("span"); b.className = "nbadge"; b.title = `이 화물에서 모은 소리 ${nv}번`; b.textContent = `🔊${nv}`; el.appendChild(b); }
@@ -479,7 +502,7 @@
       if (pk) { bar.hidden = false; $("cargoBarText").textContent = `고른 화물: ${pk.c + 1}열 ${pk.r - r0 + 1}줄 · ${pk.w}×${pk.h}${pk.item ? " · " + pk.item.ko : ""}${votes.count(pk.key) ? ` · 소리 ${votes.count(pk.key)}번` : ""}`; } else bar.hidden = true;
     }
     // 이 화물만 리셋: 이름표·모은 소리 점수·직접 지정 크기·그 자리 기록을 지워 다시 인식하게 함
-    function resetCargo(key) { tracker.items.delete(key); tracker.manual.delete(key); for (const [kk, o] of tracker.obs) if (`${o.r},${o.c}` === key) tracker.obs.delete(kk); votes.clear(key); tracker._list = null; pick = null; lastSig = ""; render(); info("이 화물을 리셋했습니다. 다시 드래그하면 새로 인식합니다."); }
+    function resetCargo(key) { checked.delete(key); tracker.items.delete(key); tracker.manual.delete(key); for (const [kk, o] of tracker.obs) if (`${o.r},${o.c}` === key) tracker.obs.delete(kk); votes.clear(key); tracker._list = null; pick = null; lastSig = ""; render(); info("이 화물을 리셋했습니다. 다시 드래그하면 새로 인식합니다."); }
     $("btnCargoReset").onclick = () => { if (pick) resetCargo(pick); };
     $("gridMap").addEventListener("click", e => {
       const el = e.target.closest("[data-c]"); if (!el) return; const c = +el.dataset.c, r = +el.dataset.r, key = el.dataset.key;
@@ -492,9 +515,9 @@
     $("gridBox").querySelectorAll("[data-size]").forEach(b => b.addEventListener("click", () => { size = size === b.dataset.size ? null : b.dataset.size; $("gridBox").querySelectorAll("[data-size]").forEach(x => x.classList.toggle("sel", x.dataset.size === size)); info(size ? (size === "del" ? "지울 화물을 누르세요." : `${size.replace("x", "×")} 크기: 화물의 왼쪽 위 칸을 누르세요. (버튼을 다시 누르면 해제)`) : "직접 지정 해제"); if (size && size !== "del") { const [w, h] = size.split("x").map(Number); setListSize(w, h, "크기 버튼"); } lastSig = ""; render(); }));
     $("btnGridReset").onclick = () => { tracker.reset(); pick = null; lastSig = ""; render(); info("격자를 비웠습니다."); };
     function refresh() { lastSig = ""; render(); }
-    function fullReset() { tracker.reset(); pick = null; size = null; $("gridBox").querySelectorAll("[data-size]").forEach(x => x.classList.remove("sel")); lastSig = ""; render(); info("전체 리셋: 격자 기록·이름표·모은 소리 점수·크기 필터를 모두 비웠습니다."); }
+    function fullReset() { checked.clear(); checkLog.length = 0; renderCheckLog(); tracker.reset(); pick = null; size = null; $("gridBox").querySelectorAll("[data-size]").forEach(x => x.classList.remove("sel")); lastSig = ""; render(); info("전체 리셋: 격자 기록·이름표·모은 소리 점수·크기 필터를 모두 비웠습니다."); }
     render();
-    return { start, stop, onResult, targetNow, info, tracker, refresh, fullReset, setPick: k => { pick = k; refresh(); } };
+    return { start, stop, onResult, targetNow, info, tracker, refresh, fullReset, checked, checkLog, setPick: k => { pick = k; refresh(); } };
   })();
 
   // ---------- 시작 ----------
