@@ -318,12 +318,11 @@
     // 소리 결과 → 화물 칸. 화물 크기와 칸 수가 맞는 후보만 남김
     function onResult(cands, tgt) {
       if (!tgt) { info("소리는 맞혔지만 어느 화물인지 몰라서 격자에 넣지 않았습니다. 화물에 마우스를 올린 채로 드래그하거나, 격자에서 화물을 눌러 지정하세요."); return; }
-      const slots = tgt.cellOnly ? 0 : tgt.w * tgt.h;
-      let pool = slots ? cands.filter(c => Number(c.slot) === slots) : cands; const fit = pool.length > 0; if (!fit) pool = cands;
+      let pool = tgt.cellOnly ? cands : MHGrid.fitCands(cands, tgt.w, tgt.h); const fit = pool.some(c => !c.sizeUnknown); if (!pool.length) pool = cands;
       const total = pool.reduce((a, c) => a + Math.max(1, c.score), 0), top = pool[0];
-      const item = { name: top.name, ko: koName(top.name), quality: top.quality, price: top.reference_value_text || top.reference_value || "-", conf: Math.round(100 * Math.max(1, top.score) / total), image: top.image, n: pool.length, red: pool.some(c => c.quality === "红色"), sure: !!tgt.dragged || !!tgt.manualPick, fit, all: pool.slice(0, 5).map(c => koName(c.name)) };
+      const item = { name: top.name, ko: koName(top.name), quality: top.quality, price: top.reference_value_text || top.reference_value || "-", conf: Math.round(100 * Math.max(1, top.score) / total), image: top.image, n: pool.length, red: pool.some(c => c.quality === "红色"), sure: !!tgt.dragged || !!tgt.manualPick, fit, sizeUnknown: !!top.sizeUnknown, all: pool.slice(0, 5).map(c => koName(c.name)) };
       tracker.assign(tgt.key, item); if (tgt.manualPick) pick = null; render();
-      info(`${tgt.w}×${tgt.h} 화물 → ${item.ko} ${item.conf}%${fit ? "" : " (크기가 맞는 후보가 없어 전체 후보 기준)"}`);
+      info(`${tgt.w}×${tgt.h} 화물 → ${item.ko} ${item.conf}%${fit ? "" : " (가로×세로가 맞는 후보가 없어 전체 후보 기준)"}`);
     }
     function priceText(p) { const n = Number(String(p).replace(/[^\d]/g, "")); return n ? (n >= 10000 ? Math.round(n / 1000) / 10 + "만" : n.toLocaleString("ko-KR")) : String(p); }
     let lastSig = "";
@@ -343,7 +342,7 @@
         el.dataset.c = k.c; el.dataset.r = k.r; el.dataset.key = k.key; pos(el, k.c, k.r, k.w, k.h);
         const it = k.item;
         if (it) { const col = QUALITY_COLOR[it.quality] || "#8a93a3"; el.style.background = col + "33"; el.style.borderColor = col; if (it.red) el.classList.add("red");
-          el.title = `${it.ko} (${ko(QUALITY_KO, it.quality)})\n참고 가치 ${it.price}\n후보 ${it.n}개: ${it.all.join(", ")}`;
+          el.title = `${it.ko} (${ko(QUALITY_KO, it.quality)})${it.sizeUnknown ? " · 크기 정보 없음" : ""}\n참고 가치 ${it.price}\n후보 ${it.n}개: ${it.all.join(", ")}`;
           const pct = (it.n === 1 ? "100%" : it.conf + "%") + (it.sure ? " ✓" : "");
           el.innerHTML = `<img class="gi" alt=""><span class="pr"></span><span class="pc"></span><div class="nm"></div>`;
           const im = el.querySelector("img"); im.src = "assets/images/" + encodeURIComponent(it.image || ""); im.onerror = () => { im.replaceWith(Object.assign(document.createElement("span"), { className: "q", textContent: "?" })); };

@@ -166,6 +166,11 @@
     target(t, maxDrag = 2.5, maxHover = 2) { const L = this.list(); if (this.drag && t - this.dragT <= maxDrag && !(this.hover && this.hoverT > this.dragT + 0.3)) { const k = L.find(o => o.key === this.drag); if (k) return k; } if (this.hover && t - this.hoverT <= maxHover) { const k = L.find(o => o.key === this.hover); if (k) return k; const [r, c] = this.hover.split(",").map(Number); const k2 = L.find(o => r >= o.r && r < o.r + o.h && c >= o.c && c < o.c + o.w); return k2 || { key: this.hover, r, c, w: 1, h: 1, cellOnly: true }; } return null; }
     rows() { let lo = 1e9, hi = -1e9; for (const [k, o] of this.cells) { if (o.s <= -4 && !this.stableOcc(k)) { } const r = +k.split(",")[0]; lo = Math.min(lo, r); hi = Math.max(hi, r); } for (const m of this.manual.values()) { lo = Math.min(lo, m.r); hi = Math.max(hi, m.r + m.h - 1); } return lo > hi ? [0, -1] : [lo, hi]; }
   }
-  const api = { detect, GridTracker };
+  // 물품 크기(가로×세로). 데이터: slot(칸 수) + orientation(正/横=가로로 김/竖=세로로 김). 상인 격자에서는 회전 없음
+  const SIZE = { "1|正": [1, 1], "4|正": [2, 2], "2|横": [2, 1], "2|竖": [1, 2], "6|横": [3, 2], "6|竖": [2, 3] };
+  function itemSize(it) { return SIZE[`${Number(it.slot)}|${String(it.orientation || "")}`] || null; }
+  // 화물 가로·세로가 정확히 같은 후보만. 크기 정보가 없는 후보는 뒤에 붙이고 unknown 표시
+  function fitCands(cands, w, h) { const ok = [], unk = []; for (const c of cands) { const s = itemSize(c); if (!s) unk.push(Object.assign({ sizeUnknown: true }, c)); else if (s[0] === w && s[1] === h) ok.push(c); } return ok.concat(unk); }
+  const api = { detect, GridTracker, itemSize, fitCands };
   if (typeof module !== "undefined") module.exports = api; else root.MHGrid = api;
 })(this);
