@@ -112,6 +112,9 @@
       if (lo > hi) off = est;
       // 화면이 바뀜(다른 상인/판매 화면): 기록과 크게 어긋나는 프레임이 이어지면 초기화
       if ((bestN >= 10 && bestMis / bestN > 0.4) || (this._sn >= 10 && this._sm / this._sn > 0.4 && (est === still || bestN < this._sn * 0.5))) { this.bad = (this.bad || 0) + 1; if (this.bad >= 3) { if (!this.manual.size && !this.items.size) { this.reset(); return this.push(det, t, g); } this.changedScreen = true; } this.prev = det; return det; }
+      // 칸이 다 차 있어도 화물 나뉨(크기·위치)이 기록과 많이 다르면 다른 화면
+      { let same = 0, diff = 0; for (const k of det.cargos) { if (k.rect === false || k.edge) continue; const r = k.r + off; let hit = false, clash = false; for (const q of this.obs.values()) { if (q.n < 4) continue; if (q.c === k.c && q.r === r && q.w === k.w && q.h === k.h) hit = true; else if (q.c < k.c + k.w && k.c < q.c + q.w && q.r < r + k.h && r < q.r + q.h) clash = true; } if (hit) same++; else if (clash) diff++; }
+        if (diff >= 5 && diff > same) { this.bad = (this.bad || 0) + 1; if (this.bad >= 3) { if (!this.manual.size && !this.items.size) { this.reset(); return this.push(det, t, g); } this.changedScreen = true; } this.prev = det; return det; } }
       this.bad = 0; this.changedScreen = false;
       this.scroll += (off - est) * det.py; this.lastOff = off;
       det.rowOff = off; this.prev = det;
@@ -135,6 +138,8 @@
         if (hidden || k.rect === false) continue;
         // 보이는 범위 맨 위/아래 줄에 걸친 화물은 화면 밖으로 잘렸을 수 있음(스크롤 중 3×2가 3×1로 보이는 등) → 따로 셈
         const key = `${k.r + off},${k.c},${k.w},${k.h}`; const o = this.obs.get(key) || { c: k.c, r: k.r + off, w: k.w, h: k.h, n: 0, ni: 0 }; o.n++; if (!k.edge) o.ni++; o.t = t; this.obs.set(key, o);
+        // 같은 자리에 지금 보이는 화물과 겹치는 다른 기록은 표를 깎음 (화물을 사서 바뀌었거나 다른 상인 화면 — 칸이 모두 차 있으면 화면 바뀜 감지가 안 됨)
+        if (!k.edge) for (const [kk, q] of this.obs) if (kk !== key && q.c < o.c + o.w && o.c < q.c + q.w && q.r < o.r + o.h && o.r < q.r + q.h) { q.n -= 2; if (q.ni > q.n) q.ni = Math.max(0, q.n); if (q.n <= 0) this.obs.delete(kk); }
       }
       this._list = null;
       if (hoverCell) { const [cc, rr] = hoverCell; const hit = this.list().find(k => cc >= k.c && cc < k.c + k.w && rr + off >= k.r && rr + off < k.r + k.h); this.hover = hit ? hit.key : `${rr + off},${cc}`; this.hoverT = t; det.hoverCell = [cc, rr]; }
