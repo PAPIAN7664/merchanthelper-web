@@ -87,3 +87,4 @@ body.pip .gridmap .cargo .nm{font-size:8px;line-height:11px}
 .testpanel{border:2px dashed #d29922;background:#1d1a12}.testpanel h2{color:#ffcf6b}.testpanel h3{font-size:14px;margin:10px 0 4px;color:#ffcf6b}
 .tmtoggle{font-weight:bold;color:#ffcf6b;white-space:nowrap}.testpanel.open{border-style:solid}
 .stlogs{display:flex;flex-direction:column;gap:6px;max-height:520px;overflow:auto}.stlog{border:1px solid #3a3424;border-radius:6px;padding:6px}.stlh{font-size:13px;margin-bottom:4px}
+.srcmode label{margin-right:12px}.warnline{color:#ffb84a;font-weight:bold}.sth{white-space:pre-line}

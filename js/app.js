@@ -175,30 +175,50 @@
     $("btnToggle").disabled = true; $("btnNow").disabled = true;
   }
 
+  // 소리 소스: "display" = 화면 공유 시스템 오디오, "device" = 입력 장치 직접 선택 (화면(격자)은 화면 공유에서 따로)
+  let SRC = { mode: "display", deviceId: "", label: "" }; try { Object.assign(SRC, JSON.parse(localStorage.getItem("mh_src") || "{}")); } catch (e) {}
+  const LIKELY = /stereo ?mix|스테레오 ?믹스|cable output|vb-?audio|voicemeeter|loopback|루프백|what u hear|wave ?out|elgato|avermedia|live gamer|usb video|cam ?link|hdmi|capture|캡처|캡쳐|game ?capture|ezcap|magewell/i;
+  const MICLIKE = /mic|마이크|microphone|headset|헤드셋|webcam|array/i;
+  const isMic = l => !!l && MICLIKE.test(l) && !LIKELY.test(l);
+  function saveSrc() { try { localStorage.setItem("mh_src", JSON.stringify(SRC)); } catch (e) {} }
+  function syncSrcUI() { document.querySelectorAll('input[name="srcMode"]').forEach(r => { r.checked = r.value === SRC.mode; }); $("devRow").hidden = SRC.mode !== "device";
+    const l = SRC.deviceId && $("devSelect").selectedOptions[0] ? $("devSelect").selectedOptions[0].dataset.label || "" : "";
+    $("devWarn").textContent = SRC.mode === "device" && isMic(l) ? "⚠️ 마이크로 보이는 장치입니다 — 목소리·키보드 소리도 소리로 잡힙니다. 게임 소리가 들어오는 장치(스테레오 믹스, CABLE Output, 오인페 루프백, 캡처카드)를 고르세요." : ""; }
+  document.querySelectorAll('input[name="srcMode"]').forEach(r => r.addEventListener("change", () => { SRC.mode = r.value; saveSrc(); syncSrcUI(); if (SRC.mode === "device") refreshDevices(true); }));
+  async function getDeviceAudio() {
+    const id = $("devSelect").value || SRC.deviceId; if (!id) throw new Error("입력 장치를 먼저 고르세요. 이름이 안 보이면 「장치 목록 새로고침」을 누르세요.");
+    return navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: id }, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } });
+  }
+  const devLabel = () => { const o = $("devSelect").selectedOptions[0]; return (o && o.value && (o.dataset.label || o.textContent)) || SRC.label || "입력 장치"; };
+  let srcInfo = { mode: "", label: "" };
   $("btnDisplay").onclick = async () => {
     try {
-      const wantGrid = $("optGrid").checked;
-      const s = await navigator.mediaDevices.getDisplayMedia({ video: wantGrid ? { frameRate: { ideal: 10, max: 15 }, width: { ideal: 2560 }, height: { ideal: 1440 } } : { frameRate: 1, width: 320, height: 180 }, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false }, systemAudio: "include", selfBrowserSurface: "exclude", surfaceSwitching: "exclude" });
-      await attach(s, "시스템 소리 (화면 공유)");
-    } catch (e) { if (/오디오 트랙/.test(e.message)) ST.noAudio(); setStatus("화면 공유 실패: " + e.message); }
+      const wantGrid = $("optGrid").checked, dev = SRC.mode === "device";
+      const s = await navigator.mediaDevices.getDisplayMedia({ video: wantGrid ? { frameRate: { ideal: 10, max: 15 }, width: { ideal: 2560 }, height: { ideal: 1440 } } : { frameRate: 1, width: 320, height: 180 }, audio: dev ? false : { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false }, systemAudio: dev ? "exclude" : "include", selfBrowserSurface: "exclude", surfaceSwitching: "exclude" });
+      if (dev) { let a; try { a = await getDeviceAudio(); } catch (e) { s.getTracks().forEach(t => t.stop()); throw e; }
+        s.getAudioTracks().forEach(t => { t.stop(); s.removeTrack(t); }); const ms = new MediaStream([...s.getVideoTracks(), ...a.getAudioTracks()]);
+        srcInfo = { mode: "device", label: devLabel() }; await attach(ms, `입력 장치: ${devLabel()} (+ 화면 공유)`); }
+      else { srcInfo = { mode: "display", label: "시스템 오디오" }; await attach(s, "시스템 소리 (화면 공유)"); }
+    } catch (e) { if (/오디오 트랙/.test(e.message)) ST.noAudio(); setStatus("소리 연결 실패: " + e.message); }
   };
   async function refreshDevices(askPermission) {
     try {
-      if (askPermission) { const t = await navigator.mediaDevices.getUserMedia({ audio: true }); t.getTracks().forEach(x => x.stop()); }
-      const list = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput");
-      const sel = $("devSelect"), cur = sel.value; sel.innerHTML = '<option value="">입력 장치 선택 (스테레오 믹스, 가상 케이블 등)</option>';
-      list.forEach((d, i) => { const o = document.createElement("option"); o.value = d.deviceId; o.textContent = d.label || `입력 장치 ${i + 1}`; sel.appendChild(o); });
-      sel.value = cur;
+      if (askPermission) { const t = await navigator.mediaDevices.getUserMedia({ audio: true }); t.getTracks().forEach(x => x.stop()); } // 권한을 먼저 받아야 장치 이름이 보임
+      const list = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput" && d.deviceId !== "communications");
+      const sel = $("devSelect"), cur = sel.value || SRC.deviceId; sel.innerHTML = '<option value="">입력 장치 선택 (스테레오 믹스, 가상 케이블, 캡처카드 등)</option>';
+      list.sort((a, b) => LIKELY.test(b.label) - LIKELY.test(a.label));
+      list.forEach((d, i) => { const o = document.createElement("option"); o.value = d.deviceId; o.dataset.label = d.label || `입력 장치 ${i + 1}`;
+        o.textContent = (LIKELY.test(d.label) ? "★ " : isMic(d.label) ? "🎤 " : "") + o.dataset.label + (LIKELY.test(d.label) ? "  (추천: 게임 소리 경로)" : isMic(d.label) ? "  (마이크 — 비추천)" : ""); if (LIKELY.test(d.label)) o.className = "likely"; sel.appendChild(o); });
+      sel.value = list.some(d => d.deviceId === cur) ? cur : ""; syncSrcUI();
     } catch (e) { setStatus("장치 목록을 가져오지 못했습니다: " + e.message); }
   }
+  $("devSelect").addEventListener("change", () => { SRC.deviceId = $("devSelect").value; SRC.label = devLabel(); saveSrc(); syncSrcUI(); });
   $("btnDevRefresh").onclick = () => refreshDevices(true);
-  $("btnDevice").onclick = async () => {
-    const id = $("devSelect").value; if (!id) { setStatus("먼저 입력 장치를 고르세요. 이름이 안 보이면 「장치 목록 새로고침」을 누르세요."); return; }
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: id }, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } });
-      await attach(s, $("devSelect").selectedOptions[0].textContent);
-    } catch (e) { setStatus("장치 연결 실패: " + e.message); }
+  $("btnDevice").onclick = async () => { // 소리만 (화면 없이)
+    try { const s = await getDeviceAudio(); SRC.mode = "device"; SRC.deviceId = $("devSelect").value || SRC.deviceId; SRC.label = devLabel(); saveSrc(); syncSrcUI(); srcInfo = { mode: "device", label: devLabel() }; await attach(s, devLabel()); }
+    catch (e) { setStatus("장치 연결 실패: " + e.message); }
   };
+  syncSrcUI();
 
   // ---------- 감시 시작/정지 ----------
   function setActive(on) {
@@ -500,6 +520,14 @@
   document.addEventListener("visibilitychange", keepAlive); window.addEventListener("blur", keepAlive);
 
   // ---------- 사운드 테스트 (창고에서) — 격자 없이 소리 경로만 단계별 점검 ----------
+  const STEP2_GUIDE = () => (SRC.mode === "device" ? `지금 고른 입력 장치 「${srcInfo.label}」에 게임 소리가 안 들어옵니다.\n` : "화면 공유 시스템 오디오는 Windows 「기본 출력 장치」의 소리만 가져옵니다. 게임이 다른 장치로 나가면 무음입니다.\n") + [
+    "① 게임에서 아무 소리나 나게 해 보세요(메뉴 클릭, 아이템 옮기기).",
+    "② Windows 설정 > 시스템 > 소리 > 「앱 볼륨 및 장치 기본 설정」에서 게임의 출력 장치가 「기본값」 또는 Windows 기본 출력과 같은지 확인하세요.",
+    "③ 오디오 인터페이스(오인페) 사용: 오인페 프로그램에서 루프백(Loopback)을 켜고, 위 「소리 소스」를 「입력 장치 직접 선택」으로 바꿔 오인페의 루프백 입력(또는 스테레오 믹스)을 고르세요.",
+    "④ Voicemeeter / VB-Cable 사용: 게임 소리가 가는 버스에 맞춰 「VoiceMeeter Out B1」 또는 「CABLE Output」을 입력 장치로 고르세요.",
+    "⑤ 캡처카드(콘솔·다른 PC 게임): 「입력 장치 직접 선택」에서 캡처카드 오디오(Elgato, AVerMedia, USB Video, Cam Link, HDMI 등)를 고르세요.",
+    "⑥ 블루투스 헤드셋·HDMI 모니터 스피커로 들을 때: 그 장치가 Windows 기본 출력이어야 화면 공유로 잡힙니다. 아니면 「스테레오 믹스」를 켜고 입력 장치로 고르세요.",
+    "⑦ 화면 공유 모드라면 공유를 다시 하고 「전체 화면」 + 「시스템 오디오도 공유」를 켜세요."].join("\n");
   const ST = (() => {
     const N_SILENT = 6, N_WAIT = 30;
     let on = false, buf = null, bpos = 0, bfill = 0, t = 0, tStart = 0, timer = null, sMatch = null;
@@ -515,7 +543,8 @@
     async function start() {
       reset(); on = true; tStart = performance.now() / 1000; buf = null;
       $("stPanel").classList.add("running"); $("stPanel").scrollIntoView({ behavior: "smooth", block: "start" });
-      if (isFF || isSafari || !(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)) set(0, "fail", `이 브라우저(${browser})는 화면 공유로 시스템 소리를 못 가져옵니다.`, "Windows의 Chrome 또는 Edge로 이 페이지를 여세요. (Firefox·Safari는 시스템 오디오 공유가 안 됩니다.) 다른 방법: 「스테레오 믹스」나 가상 오디오 케이블을 입력 장치로 고르고 「이 장치 사용」.");
+      if (SRC.mode === "device" && !stream) { set(0, "run", "입력 장치 모드: 장치에서 소리를 가져옵니다 (화면은 격자용으로만 공유)."); render(); try { await ($("optGrid").checked ? $("btnDisplay") : $("btnDevice")).onclick(); } catch (e) {} }
+      else if (isFF || isSafari || !(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)) set(0, "fail", `이 브라우저(${browser})는 화면 공유로 시스템 소리를 못 가져옵니다.`, "Windows의 Chrome 또는 Edge로 이 페이지를 여세요. (Firefox·Safari는 시스템 오디오 공유가 안 됩니다.) 다른 방법: 「스테레오 믹스」나 가상 오디오 케이블을 입력 장치로 고르고 「이 장치 사용」.");
       else if (!stream) { set(0, "run", "화면 공유 창을 띄웠습니다. 「전체 화면」 탭 → 화면 선택 → 「시스템 오디오도 공유」를 켜고 「공유」를 누르세요."); render(); noAudioErr = false; try { await $("btnDisplay").onclick(); } catch (e) {} }
       if (!timer) timer = setInterval(tick, 200); tick();
     }
@@ -527,6 +556,7 @@
         if (!stream) { if (noAudioErr || now - tStart > 4) set(0, "fail", noAudioErr ? "화면은 공유됐지만 소리(오디오 트랙)가 없습니다." : "아직 소리 소스가 연결되지 않았습니다.", "「화면 공유로 시스템 소리 가져오기」를 다시 누르고, 공유 창에서 「전체 화면」 탭 → 화면 선택 → 아래 「시스템 오디오도 공유」 스위치를 켠 뒤 공유하세요. 「창」 탭이나 다른 「Chrome 탭」을 고르면 게임 소리가 안 옵니다."); }
         else { const vt = stream.getVideoTracks()[0], at = stream.getAudioTracks()[0], surf = vt && vt.getSettings ? vt.getSettings().displaySurface : "";
           if (!at || at.readyState === "ended") set(0, "fail", "오디오 트랙이 끊겼습니다.", "공유를 중지하고 다시 공유하세요. 「시스템 오디오도 공유」를 켜야 합니다.");
+          else if (srcInfo.mode === "device") set(0, isMic(srcInfo.label) ? "warn" : "ok", `입력 장치 「${srcInfo.label}」 사용 · ${sr} Hz${vt ? " · 화면은 격자용" : ""}`, isMic(srcInfo.label) ? "마이크로 보이는 장치입니다. 목소리·키보드 소리도 잡혀서 오인식됩니다. 게임 소리 경로(스테레오 믹스·CABLE Output·루프백·캡처카드)를 고르세요." : "");
           else if (surf === "browser") set(0, "fail", "브라우저 탭만 공유됐습니다 — 그 탭의 소리만 오고 게임 소리는 안 옵니다.", "공유를 다시 하고 「전체 화면」 탭을 고른 뒤 「시스템 오디오도 공유」를 켜세요.");
           else if (surf === "window") set(0, "warn", "창 공유는 소리가 안 올 수 있습니다.", "「전체 화면」 공유 + 「시스템 오디오도 공유」를 권장합니다. 아래 2단계가 통과하면 그대로 써도 됩니다.");
           else set(0, "ok", vt ? `화면 공유(${surf || "화면"}) + 오디오 트랙 있음 · ${sr} Hz` : `입력 장치(${$("srcName").textContent}) 사용 · ${sr} Hz`); }
@@ -538,7 +568,7 @@
       if (!T1) T1 = now;
       if (ctx.state !== "running") set(1, "fail", `오디오가 멈춰 있습니다 (${ctx.state}).`, "이 페이지를 한 번 클릭하세요. 탭을 백그라운드로 보내지 말고 작은 창(항상 위)을 쓰세요.");
       else if (lvl.loud >= 2) set(1, "ok", `소리 들어옴 · 지금 ${f0(d)} dB · 최대 ${f0(lvl.max)} dB`);
-      else if (now - T1 > N_SILENT) set(1, "fail", `${N_SILENT}초 동안 소리가 전혀 없습니다 (최대 ${f0(lvl.max)} dB).`, "게임에서 아무 소리나 나게 해 보세요. 그래도 0이면 공유를 다시 하고 「시스템 오디오도 공유」를 켜세요. 게임 소리가 다른 출력 장치(헤드셋 전용 등)로 나가면 Windows 기본 출력 장치를 그 장치로 맞추세요.");
+      else if (now - T1 > N_SILENT) set(1, "fail", `${N_SILENT}초 동안 소리가 전혀 없습니다 (최대 ${f0(lvl.max)} dB).`, STEP2_GUIDE());
       else set(1, "run", `소리를 기다리는 중… 지금 ${f0(d)} dB`);
       if (s[1].st !== "ok") { render(); return; }
       // 3. 창고에서 아이템 드래그 → 기준선 넘는지
@@ -596,7 +626,7 @@
     function diag() {
       const tr = tries[tries.length - 1], it = picked(), vt = stream && stream.getVideoTracks()[0], surf = vt && vt.getSettings ? vt.getSettings().displaySurface : "";
       return [`[행상도우미 사운드테스트] ${new Date().toLocaleString("ko-KR", { hour12: false })}`, `브라우저 ${browser}`,
-        `소스 ${stream ? (vt ? "화면공유(" + (surf || "?") + ")" : "장치") : "없음"} · 오디오트랙 ${stream && stream.getAudioTracks().length ? "있음" : "없음"} · ${ctx ? sr + "Hz " + ctx.state : "-"}`,
+        `소리모드 ${SRC.mode === "device" ? "입력장치" : "화면공유 시스템오디오"} · 장치 ${srcInfo.label || SRC.label || "-"}${isMic(srcInfo.label) ? " (마이크?)" : ""}`, `소스 ${stream ? (vt ? "화면공유(" + (surf || "?") + ")" : "장치만") : "없음"} · 오디오트랙 ${stream && stream.getAudioTracks().length ? "있음" : "없음"} · ${ctx ? sr + "Hz " + ctx.state : "-"}`,
         `레벨 최대 ${f0(lvl.max)}dB 평균 ${lvl.n ? f0(lvl.sum / lvl.n) : "-"}dB · 기준선 ${f0(dB(curThr))}dB · 넘은비율 ${hist.length ? Math.round(100 * hist.reduce((a, b) => a + b, 0) / hist.length) : 0}%`,
         `감도 ${sens}/7 · 증폭 ×${GAINS[gainIdx]}`, `단계 ${STEPS.map((_, i) => `${i + 1}${{ ok: "O", fail: "X", warn: "!", run: "…", wait: "-" }[(s[i] || {}).st || "wait"]}`).join(" ")}`,
         `매칭 ${tries.length}회${tr ? ": " + tr.rows.slice(0, 3).map(r => `${sndName(r.key)} ${r.score}`).join(", ") + (tr.strong ? "" : " (약함)") : ""}${it ? ` · 옮긴 아이템 ${koName(it.name)} ${rankOf(tr ? tr.rows : [], it) + 1 || "순위밖"}위` : ""}`].join("\n");

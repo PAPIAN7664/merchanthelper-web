@@ -18,14 +18,19 @@
 <main>
 <section class="panel" id="setup">
   <h2>1. 소리 가져오기</h2>
-  <div class="row">
-    <button id="btnDisplay" class="primary">화면 공유로 시스템 소리 가져오기</button>
-    <span class="hint">Chrome/Edge(Windows): 「전체 화면」 탭을 고르고 아래 <b>「시스템 오디오도 공유」</b>를 꼭 켜세요.</span>
+  <div class="row srcmode"><b>소리 소스</b>
+    <label><input type="radio" name="srcMode" value="display" checked> 화면 공유 시스템 오디오</label>
+    <label><input type="radio" name="srcMode" value="device"> 입력 장치 직접 선택 <span class="small muted">(오인페·Voicemeeter·VB-Cable·캡처카드·블루투스)</span></label></div>
+  <div class="row" id="devRow" hidden>
+    <select id="devSelect"><option value="">입력 장치 선택 (스테레오 믹스, 가상 케이블, 캡처카드 등)</option></select>
+    <button id="btnDevRefresh">장치 목록 새로고침</button>
+    <button id="btnDevice" title="화면 없이 소리만">소리만 연결</button>
+    <span id="devWarn" class="warnline"></span>
+    <span class="hint">★ = 게임 소리 경로로 보이는 장치. 화면(격자)은 아래 버튼의 화면 공유에서 따로 가져옵니다.</span>
   </div>
   <div class="row">
-    <select id="devSelect"><option value="">입력 장치 선택 (스테레오 믹스, 가상 케이블 등)</option></select>
-    <button id="btnDevRefresh">장치 목록 새로고침</button>
-    <button id="btnDevice">이 장치 사용</button>
+    <button id="btnDisplay" class="primary">화면 공유 + 소리 연결</button>
+    <span class="hint">Chrome/Edge(Windows): 「전체 화면」 탭을 고르고, 화면 공유 시스템 오디오 모드라면 <b>「시스템 오디오도 공유」</b>를 꼭 켜세요.</span>
   </div>
   <div class="row small">
     <span>소스: <b id="srcName">없음</b></span>
