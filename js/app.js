@@ -198,9 +198,13 @@
 
   // ---------- 결과 표시 (ui.Panel) ----------
   let allCands = [], lastSig = "", history = [], pendingTarget = null;
+  // 후보 목록을 거를 화물 크기 {w,h,src}. 소리 난 화물·고른 화물·크기 버튼에서 정해짐. ✕로 해제
+  let listSize = null;
+  function setListSize(w, h, src) { listSize = w && h ? { w, h, src } : null; applyFilter(); }
   function showRows(rows, reason, trace) {
     const cands = engine.resolve(rows);
     const tgt = pendingTarget; pendingTarget = null;
+    if (cands.length && tgt && !tgt.cellOnly && tgt.w && tgt.h) listSize = { w: tgt.w, h: tgt.h, src: tgt.manualPick ? "고른 화물" : tgt.dragged ? "드래그한 화물" : "마우스 올린 화물" }, lastSig = ""; // 크기가 바뀌면 목록 다시 그림
     if (cands.length) GRID.onResult(cands, tgt);
     if (!cands.length && allCands.length) { setStatus(`이번에는 소리를 찾지 못해 이전 후보를 유지합니다. (${reason || "결과 없음"}) · ${trace}`); return; } // 원본의 '粘滞'
     setStatus((reason || (cands.length ? "" : "후보 없음")) + " · " + trace);
@@ -223,7 +227,10 @@
     const q = ($("fSearch").value || "").trim().toLowerCase().replace(/\s+/g, "");
     const norm = t => String(t || "").toLowerCase().replace(/\s+/g, "");
     const shown = engine.filter(allCands, $("fQuality").value, $("fCategory").value, $("fOrient").value, Number($("fMin").value) || 0)
-      .filter(c => !q || [koName(c.name), enName(c.name), c.name, sndName(c.sound_key)].some(t => norm(t).includes(q)));
+      .filter(c => !q || [koName(c.name), enName(c.name), c.name, sndName(c.sound_key)].some(t => norm(t).includes(q)))
+      .filter(c => { if (!listSize) return true; const z = MHGrid.itemSize(c); return !!z && z[0] === listSize.w && z[1] === listSize.h; });
+    // 확률은 지금 보이는 후보끼리 나눔 (크기로 거른 뒤)
+    const tot = shown.reduce((a, c) => a + Math.max(1, c.score), 0);
     const box = $("cards"); box.innerHTML = "";
     for (const c of shown.slice(0, MAX_CARDS)) {
       const color = QUALITY_COLOR[c.quality] || "#8a93a3";
@@ -236,15 +243,20 @@
       el.querySelector(".qbadge").textContent = ko(QUALITY_KO, c.quality);
       el.querySelector(".cmeta").textContent = `${ko(QUALITY_KO, c.quality)} · ${ko(CATEGORY_KO, c.category)} · ${c.slot}칸${c.orientation ? ` (${ko(ORIENT_KO, c.orientation)})` : ""}`;
       el.querySelector(".cextra").textContent = `참고 가치 ${c.reference_value_text || "-"} · 소리 그룹 ${sndName(c.sound_key)}${c.special ? " · 특수" : ""}`;
-      el.querySelector(".score").textContent = c.score;
+      el.querySelector(".score").textContent = c.score; el.querySelector(".score").title = `이 목록 안 확률 ${Math.round(100 * Math.max(1, c.score) / tot)}%`;
+      const pctEl = document.createElement("div"); pctEl.className = "small muted"; pctEl.textContent = `${Math.round(100 * Math.max(1, c.score) / tot)}%`; el.querySelector(".score").appendChild(pctEl);
       box.appendChild(el);
     }
-    $("summary").textContent = `후보 ${allCands.length}개 / 표시 ${Math.min(shown.length, MAX_CARDS)}개`;
-    if (!shown.length) box.innerHTML = '<div class="muted small">물건을 드래그하기를 기다리는 중…</div>';
+    const sm = $("summary"); sm.textContent = `후보 ${allCands.length}개 / 표시 ${Math.min(shown.length, MAX_CARDS)}개 · `;
+    const tag = document.createElement("span"); tag.className = "sizetag" + (listSize ? " on" : "");
+    if (listSize) { tag.textContent = `${listSize.w}×${listSize.h} 화물 기준 (${listSize.src}) — 이 크기 물품만 표시 `; const x = document.createElement("button"); x.textContent = "✕ 크기 해제"; x.onclick = () => setListSize(null); tag.appendChild(x); }
+    else tag.textContent = "화물 크기를 몰라 모든 크기를 표시 중 (화물에 마우스를 올리고 드래그하거나, 격자에서 화물·크기 버튼을 누르면 그 크기만 보여요)";
+    sm.appendChild(tag);
+    if (!shown.length) box.innerHTML = allCands.length && listSize ? `<div class="muted small">${listSize.w}×${listSize.h} 크기 후보가 없습니다. ✕ 크기 해제를 누르면 전체 후보를 봅니다.</div>` : '<div class="muted small">물건을 드래그하기를 기다리는 중…</div>';
   }
   ["fQuality", "fCategory", "fOrient", "fMin"].forEach(id => $(id).addEventListener("change", applyFilter));
   $("fSearch").addEventListener("input", applyFilter);
-  $("btnClear").onclick = () => { allCands = []; lastSig = ""; rebuildCombos(); applyFilter(); };
+  $("btnClear").onclick = () => { allCands = []; lastSig = ""; listSize = null; rebuildCombos(); applyFilter(); };
   $("btnHistory").onclick = () => { const h = $("history"); h.hidden = !h.hidden; renderHistory(); };
   function renderHistory() { $("history").textContent = history.length ? history.slice().reverse().map((r, i) => `#${i + 1} ${r.time}  후보 ${r.items.length}개  ${r.items.slice(0, 5).map(c => koName(c.name)).join("、")}${r.items.length > 5 ? " 등" : ""}`).join("\n") : "(아직 기록 없음)"; }
 
@@ -362,11 +374,11 @@
       const el = e.target.closest("[data-c]"); if (!el) return; const c = +el.dataset.c, r = +el.dataset.r, key = el.dataset.key;
       if (size === "del") { if (key) { tracker.removeManual(key); tracker.items.delete(key); for (const [kk, o] of tracker.obs) if (`${o.r},${o.c}` === key) tracker.obs.delete(kk); tracker._list = null; } }
       else if (size) { const [w, h] = size.split("x").map(Number); tracker.setManual(c, r, w, h); }
-      else if (key) pick = pick === key ? null : key;
+      else if (key) { pick = pick === key ? null : key; const k = tracker.list().find(o => o.key === key); if (pick && k) setListSize(k.w, k.h, "고른 화물"); }
       lastSig = ""; render();
       if (pick && !size) info("이 화물을 골랐습니다. 다음 소리 결과를 여기에 넣습니다. (다시 누르면 해제)");
     });
-    $("gridBox").querySelectorAll("[data-size]").forEach(b => b.addEventListener("click", () => { size = size === b.dataset.size ? null : b.dataset.size; $("gridBox").querySelectorAll("[data-size]").forEach(x => x.classList.toggle("sel", x.dataset.size === size)); info(size ? (size === "del" ? "지울 화물을 누르세요." : `${size.replace("x", "×")} 크기: 화물의 왼쪽 위 칸을 누르세요. (버튼을 다시 누르면 해제)`) : "직접 지정 해제"); lastSig = ""; render(); }));
+    $("gridBox").querySelectorAll("[data-size]").forEach(b => b.addEventListener("click", () => { size = size === b.dataset.size ? null : b.dataset.size; $("gridBox").querySelectorAll("[data-size]").forEach(x => x.classList.toggle("sel", x.dataset.size === size)); info(size ? (size === "del" ? "지울 화물을 누르세요." : `${size.replace("x", "×")} 크기: 화물의 왼쪽 위 칸을 누르세요. (버튼을 다시 누르면 해제)`) : "직접 지정 해제"); if (size && size !== "del") { const [w, h] = size.split("x").map(Number); setListSize(w, h, "크기 버튼"); } lastSig = ""; render(); }));
     $("btnGridReset").onclick = () => { tracker.reset(); pick = null; lastSig = ""; render(); info("격자를 비웠습니다."); };
     render();
     return { start, stop, onResult, targetNow, info, tracker };
