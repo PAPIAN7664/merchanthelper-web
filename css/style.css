@@ -96,3 +96,14 @@ body.pip .gridmap .cargo .nm{font-size:8px;line-height:11px}
 .clrow{display:flex;align-items:center;gap:6px;padding:3px 4px;border-bottom:1px solid var(--line);font-size:13px}
 .clrow img{width:28px;height:28px;object-fit:contain}
 .clrow.red{border-left:3px solid var(--red)}
+
+header{position:relative}
+.helpbtn{position:absolute;top:10px;right:12px;font-size:15px}
+.helpmodal{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:30px 10px}
+.helpmodal[hidden]{display:none}
+.helpbox{background:#1c1f26;color:#e8e8e8;max-width:760px;width:100%;border-radius:10px;padding:16px 22px;line-height:1.6;border:1px solid #444}
+.helphead{display:flex;justify-content:space-between;align-items:center}
+.helpbox summary{font-weight:bold;font-size:16px;cursor:pointer;margin:10px 0 4px}
+.helpbox a{color:#7cc4ff}
+.helpbox .hk.red{border:2px solid #e33;padding:0 4px;border-radius:3px}
+.helptips li{list-style:none}

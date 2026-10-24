@@ -13,6 +13,7 @@
     <p class="credit">원작: <b>烟火</b> (A1Chao) · <a href="https://github.com/A1Chao/MerchantHelper" target="_blank" rel="noopener">github.com/A1Chao/MerchantHelper</a> · 오픈소스판(<code>--no-vision</code>, 소리 인식만) 기능을 브라우저로 옮긴 비공식 포트입니다.<br>
     <b class="warn">学习交流用，禁止商业用途 — 학습·교류 전용, 상업적 이용 금지.</b> 게임 아이콘·효과음·물품 데이터의 저작권은 게임 권리자에게 있습니다.</p>
   </div>
+  <button id="btnHelp" class="primary helpbtn" type="button">❓ 사용법 / 설정 방법</button>
 </header>
 
 <main>
@@ -139,6 +140,40 @@
   </ul>
 </section>
 </main>
+<div id="helpModal" class="helpmodal" hidden><div class="helpbox" role="dialog" aria-label="사용법">
+<div class="helphead"><h2>❓ 사용법 / 설정 방법</h2><button id="btnHelpClose" type="button">닫기 ✕</button></div>
+<details open><summary>1. 기본 사용 순서</summary><ol>
+<li><b>화면 공유 시작</b>: 「화면 공유 + 소리 연결」을 누르고 게임 화면(「전체 화면」 권장)을 고른 뒤 <b>「시스템 오디오도 공유」</b>를 켜세요.</li>
+<li><b>감시 시작</b>: 「▶ 감시 시작 (F8)」을 누르세요. 「작은 창으로 띄우기」로 게임 위에 띄워 둘 수 있어요.</li>
+<li><b>상인 화물 화면 열기</b>: 화물 격자를 자동으로 찾아요. 스크롤을 끝까지 천천히 내려 모든 줄을 기록하세요.</li>
+<li><b>화물 드래그</b>: 화물을 드래그하면 소리로 물품을 판별해 그 칸에 표시해요. 여러 번 드래그하면 결과를 합쳐요.</li>
+<li><b>격자 표시 뜻</b><ul>
+<li><span class="hk red">빨간 테두리</span> = 빨템이 나올 수 있는 화물</li>
+<li><b>✓</b> = 확인한 화물</li>
+<li><b>✓빨강</b> = 그 소리를 내는 빨템이 하나뿐이라 빨템으로 확정</li>
+<li>이름표는 같은 화물을 다시 검색하기 전까지 계속 남아요.</li></ul></li>
+<li><b>기록 — 확인한 화물</b>: 확인한 화물의 시간·위치·크기·이름표가 쌓여요.</li>
+<li><b>리셋</b>: 잘못 잡혔으면 「이 화물 리셋」 또는 「전체 리셋」을 누르세요.</li>
+<li><b>감도 −/+</b>: 1~7 (기본 4). 소리를 놓치면 +, 엉뚱한 소리에 반응하면 −.</li>
+<li><b>증폭 ×1/×2/×4/×8</b>: 게임 소리가 작아 미터가 거의 안 움직일 때만 올리세요.</li>
+<li><b>🧪 테스트 란</b>: 「테스트 모드 켜기」 → 창고에서 「사운드 테스트 시작」 → 아이템을 옮겨 보세요. 격자와 따로 동작해요. 안 되면 「진단 글 복사」로 보내 주세요.</li></ol></details>
+<details open><summary>2. 팀원 목소리 분리하기 (디스코드·게임 보이스)</summary>
+<p>화면 공유 소리는 PC 소리 전체를 받아서 목소리도 같이 들어가요. 게임 소리만 받게 나누면 가장 확실해요.</p>
+<ol><li><b>간단한 방법</b>: 디스코드(또는 게임 보이스) 출력을 다른 장치(예: 헤드셋)로 바꾸고, 사이트 「소리 소스」를 <b>「입력 장치 직접 선택」</b>으로 바꿔 게임 소리만 오는 장치를 고르세요.</li>
+<li><b>VB-CABLE 쓰기</b> (장치가 하나뿐일 때, 무료)<ol>
+<li><a href="https://vb-audio.com/Cable/" target="_blank" rel="noopener">vb-audio.com/Cable</a>에서 받아 설치하고 PC를 다시 켜세요.</li>
+<li>Windows <b>설정 &gt; 시스템 &gt; 소리 &gt; 볼륨 믹서</b>(앱 볼륨 및 장치 기본 설정)에서 게임 exe의 출력을 <b>CABLE Input</b>으로 바꾸세요.</li>
+<li>사이트에서 「입력 장치 직접 선택」 → <b>CABLE Output</b>을 고르세요.</li>
+<li>내 귀로도 들으려면: <b>제어판 &gt; 소리 &gt; 녹음</b> 탭 &gt; CABLE Output 속성 &gt; <b>수신 대기</b> &gt; 「이 장치로 듣기」 체크 → 재생 장치를 내 헤드셋으로 고르세요.</li></ol></li>
+<li><b>급할 때</b>: 화물을 확인하는 몇 초 동안만 보이스 음량을 잠깐 낮추세요.</li></ol></details>
+<details open><summary>3. 바람·환경음 줄이기</summary><ul>
+<li>게임 소리 설정에서 <b>환경음·음악·보이스는 낮추고 효과음은 높이세요.</b></li>
+<li>사이트 감도를 1~2칸 내리고(−), 증폭은 ×1~×2로 두세요.</li></ul></details>
+<details><summary>4. 캡처보드·오디오 인터페이스(오인페) 사용자 / 테스트 2단계에서 막힐 때</summary>
+<p>맨 위 「1. 소리 가져오기」의 <b>「소리 소스」</b>를 「입력 장치 직접 선택」으로 바꾸고 장치를 고르세요. ★ 표시는 게임 소리 경로로 보이는 장치예요.</p>
+<ol id="helpTips" class="helptips"></ol></details>
+</div></div>
+
 
 <script src="js/data.js"></script>
 <script src="js/names_ko.js"></script>
@@ -146,5 +181,6 @@
 <script src="js/grid.js"></script>
 <script src="js/events.js"></script>
 <script src="js/app.js"></script>
+<script>(function(){var m=document.getElementById("helpModal");document.getElementById("btnHelp").onclick=function(){m.hidden=false};document.getElementById("btnHelpClose").onclick=function(){m.hidden=true};m.addEventListener("click",function(e){if(e.target===m)m.hidden=true});document.addEventListener("keydown",function(e){if(e.key==="Escape")m.hidden=true});})();</script>
 </body>
 </html>

@@ -543,14 +543,16 @@
   document.addEventListener("visibilitychange", keepAlive); window.addEventListener("blur", keepAlive);
 
   // ---------- 사운드 테스트 (창고에서) — 격자 없이 소리 경로만 단계별 점검 ----------
-  const STEP2_GUIDE = () => (SRC.mode === "device" ? `지금 고른 입력 장치 「${srcInfo.label}」에 게임 소리가 안 들어옵니다.\n` : "화면 공유 시스템 오디오는 Windows 「기본 출력 장치」의 소리만 가져옵니다. 게임이 다른 장치로 나가면 무음입니다.\n") + [
+  const STEP2_TIPS = [
     "① 게임에서 아무 소리나 나게 해 보세요(메뉴 클릭, 아이템 옮기기).",
     "② Windows 설정 > 시스템 > 소리 > 「앱 볼륨 및 장치 기본 설정」에서 게임의 출력 장치가 「기본값」 또는 Windows 기본 출력과 같은지 확인하세요.",
     "③ 오디오 인터페이스(오인페) 사용: 오인페 프로그램에서 루프백(Loopback)을 켜고, 위 「소리 소스」를 「입력 장치 직접 선택」으로 바꿔 오인페의 루프백 입력(또는 스테레오 믹스)을 고르세요.",
     "④ Voicemeeter / VB-Cable 사용: 게임 소리가 가는 버스에 맞춰 「VoiceMeeter Out B1」 또는 「CABLE Output」을 입력 장치로 고르세요.",
     "⑤ 캡처카드(콘솔·다른 PC 게임): 「입력 장치 직접 선택」에서 캡처카드 오디오(Elgato, AVerMedia, USB Video, Cam Link, HDMI 등)를 고르세요.",
     "⑥ 블루투스 헤드셋·HDMI 모니터 스피커로 들을 때: 그 장치가 Windows 기본 출력이어야 화면 공유로 잡힙니다. 아니면 「스테레오 믹스」를 켜고 입력 장치로 고르세요.",
-    "⑦ 화면 공유 모드라면 공유를 다시 하고 「전체 화면」 + 「시스템 오디오도 공유」를 켜세요."].join("\n");
+    "⑦ 화면 공유 모드라면 공유를 다시 하고 「전체 화면」 + 「시스템 오디오도 공유」를 켜세요."];
+  { const hl = document.getElementById("helpTips"); if (hl) hl.innerHTML = STEP2_TIPS.map(t => `<li>${t.replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"})[c])}</li>`).join(""); }
+  const STEP2_GUIDE = () => (SRC.mode === "device" ? `지금 고른 입력 장치 「${srcInfo.label}」에 게임 소리가 안 들어옵니다.\n` : "화면 공유 시스템 오디오는 Windows 「기본 출력 장치」의 소리만 가져옵니다. 게임이 다른 장치로 나가면 무음입니다.\n") + STEP2_TIPS.join("\n");
   const ST = (() => {
     const N_SILENT = 6, N_WAIT = 30;
     let on = false, buf = null, bpos = 0, bfill = 0, t = 0, tStart = 0, timer = null, sMatch = null;
