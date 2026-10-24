@@ -107,3 +107,12 @@ header{position:relative}
 .helpbox a{color:#7cc4ff}
 .helpbox .hk.red{border:2px solid #e33;padding:0 4px;border-radius:3px}
 .helptips li{list-style:none}
+
+.vwarn{background:#ffd23f;color:#1a1a1a;border:3px solid #ff7a00;border-radius:8px;padding:10px 16px;margin:10px 12px;line-height:1.55}
+.vwarn a,.vwarn u{color:#1a1a1a}
+.vwarn .wbig{font-size:17px;font-weight:bold;margin:4px 0}
+.vwarn p{margin:4px 0}.vwarn ol{margin:4px 0 4px 20px}
+.vwhead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.vwhead b{font-size:16px;flex:1}
+.vwarn button{background:#1a1a1a;color:#ffd23f;border:0;border-radius:5px;padding:4px 10px;cursor:pointer}
+.vwarn.inhelp{margin:6px 0 10px}
