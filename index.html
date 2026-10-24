@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>행상 도우미 웹 (MerchantHelper 웹 포트)</title>
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.css?v=14b">
 </head>
 <body>
 <header>
@@ -16,16 +16,16 @@
   <button id="btnHelp" class="primary helpbtn" type="button">❓ 사용법 / 설정 방법</button>
 </header>
 
-<div id="voiceWarn" class="vwarn"><div class="vwhead"><b>⚠️ 소리로 찾는 도구예요 — 대화·교전·바람 소리가 있으면 틀릴 수 있어요</b>
-<button type="button" class="openVoiceHelp">목소리 분리 방법 보기</button><button type="button" id="btnWarnToggle">접기</button></div>
-<div id="vwBody"><p class="wbig">⚠️ 이 도구는 화물을 드래그할 때 나는 <u>소리</u>로 템을 찾아요. 화면은 격자 위치만 봐요.</p>
-<p>디코·게임 보이스 같은 <b>유저 간 대화</b>, <b>교전 소리</b>, <b>바람·환경음</b>이 같이 들리면 소리를 못 찾거나 틀릴 수 있어요.</p>
-<p><b>디코 때문에 잘 안 읽힐 때</b></p>
-<ol><li>확인하는 몇 초 동안 디코 음량을 잠깐 줄이세요.</li>
-<li>디코 출력을 다른 장치(예: 헤드셋)로 바꾸세요: 디코 설정 &gt; 음성 및 비디오 &gt; 출력 장치.</li>
-<li>VB-CABLE로 게임 소리만 사이트에 넣으세요.</li>
-<li>조용할 때 화물을 다시 드래그해 확인하고, 틀리면 「이 화물 리셋」을 누르세요.</li></ol></div></div>
 <main>
+<section id="voiceWarn" class="vwarn" style="background:#2a2410;border:1px solid #6b5520;border-left:6px solid #f5b301;border-radius:10px;padding:12px 16px;color:#f3e7c4">
+<div class="vwhead"><h2 class="vwtitle">⚠️ <em class="k">소리</em>로 찾는 도구예요 — <em class="k">대화·교전</em> 소리가 있으면 틀릴 수 있어요</h2>
+<div class="vwbtns"><button type="button" class="openVoiceHelp">목소리 분리 방법</button><button type="button" id="btnWarnToggle">접기</button></div></div>
+<div id="vwBody"><p class="vwlead">화물을 드래그할 때 나는 <em class="k">소리</em>로 템을 찾아요. 화면은 격자 위치만 봐요. <em class="k">대화</em>(디코·게임 보이스), <em class="k">교전</em> 소리, 바람·환경음이 섞이면 못 찾거나 틀릴 수 있어요.</p>
+<p class="vwsub">디코 때문에 잘 안 읽힐 때</p><ol class="vwsteps">
+<li><b>잠깐 줄이기</b><span>확인하는 몇 초 동안 디코 음량 낮추기</span></li>
+<li><b>디코 출력 분리</b><span>디코 설정 &gt; 음성 및 비디오 &gt; 출력 장치를 헤드셋 등으로</span></li>
+<li><b>VB-CABLE</b><span>게임 소리만 사이트에 넣기</span></li>
+<li><b>다시 확인</b><span>조용할 때 다시 드래그, 틀리면 「이 화물 리셋」</span></li></ol></div></section>
 <section class="panel" id="setup">
   <h2>1. 소리 가져오기</h2>
   <div class="row srcmode"><b>소리 소스</b>
@@ -166,13 +166,12 @@
 <li><b>감도 −/+</b>: 1~7 (기본 4). 소리를 놓치면 +, 엉뚱한 소리에 반응하면 −.</li>
 <li><b>증폭 ×1/×2/×4/×8</b>: 게임 소리가 작아 미터가 거의 안 움직일 때만 올리세요.</li>
 <li><b>🧪 테스트 란</b>: 「테스트 모드 켜기」 → 창고에서 「사운드 테스트 시작」 → 아이템을 옮겨 보세요. 격자와 따로 동작해요. 안 되면 「진단 글 복사」로 보내 주세요.</li></ol></details>
-<div class="vwarn inhelp"><p class="wbig">⚠️ 이 도구는 화물을 드래그할 때 나는 <u>소리</u>로 템을 찾아요. 화면은 격자 위치만 봐요.</p>
-<p>디코·게임 보이스 같은 <b>유저 간 대화</b>, <b>교전 소리</b>, <b>바람·환경음</b>이 같이 들리면 소리를 못 찾거나 틀릴 수 있어요.</p>
-<p><b>디코 때문에 잘 안 읽힐 때</b></p>
-<ol><li>확인하는 몇 초 동안 디코 음량을 잠깐 줄이세요.</li>
-<li>디코 출력을 다른 장치(예: 헤드셋)로 바꾸세요: 디코 설정 &gt; 음성 및 비디오 &gt; 출력 장치.</li>
-<li>VB-CABLE로 게임 소리만 사이트에 넣으세요.</li>
-<li>조용할 때 화물을 다시 드래그해 확인하고, 틀리면 「이 화물 리셋」을 누르세요.</li></ol><button type="button" class="openVoiceHelp">목소리 분리 방법 보기 ↓</button></div>
+<div class="vwarn inhelp"><h3 class="vwtitle">⚠️ <em class="k">소리</em>로 찾는 도구예요 — <em class="k">대화·교전</em> 소리가 있으면 틀릴 수 있어요</h3><p class="vwlead">화물을 드래그할 때 나는 <em class="k">소리</em>로 템을 찾아요. 화면은 격자 위치만 봐요. <em class="k">대화</em>(디코·게임 보이스), <em class="k">교전</em> 소리, 바람·환경음이 섞이면 못 찾거나 틀릴 수 있어요.</p>
+<p class="vwsub">디코 때문에 잘 안 읽힐 때</p><ol class="vwsteps">
+<li><b>잠깐 줄이기</b><span>확인하는 몇 초 동안 디코 음량 낮추기</span></li>
+<li><b>디코 출력 분리</b><span>디코 설정 &gt; 음성 및 비디오 &gt; 출력 장치를 헤드셋 등으로</span></li>
+<li><b>VB-CABLE</b><span>게임 소리만 사이트에 넣기</span></li>
+<li><b>다시 확인</b><span>조용할 때 다시 드래그, 틀리면 「이 화물 리셋」</span></li></ol><button type="button" class="openVoiceHelp">목소리 분리 방법 보기 ↓</button></div>
 <details open id="helpVoice"><summary>2. 팀원 목소리 분리하기 (디스코드·게임 보이스)</summary>
 <p>화면 공유 소리는 PC 소리 전체를 받아서 목소리도 같이 들어가요. 게임 소리만 받게 나누면 가장 확실해요.</p>
 <ol><li><b>간단한 방법</b>: 디스코드(또는 게임 보이스) 출력을 다른 장치(예: 헤드셋)로 바꾸고, 사이트 「소리 소스」를 <b>「입력 장치 직접 선택」</b>으로 바꿔 게임 소리만 오는 장치를 고르세요.</li>
@@ -191,12 +190,12 @@
 </div></div>
 
 
-<script src="js/data.js"></script>
-<script src="js/names_ko.js"></script>
-<script src="js/matcher.js"></script>
-<script src="js/grid.js"></script>
-<script src="js/events.js"></script>
-<script src="js/app.js"></script>
+<script src="js/data.js?v=14b"></script>
+<script src="js/names_ko.js?v=14b"></script>
+<script src="js/matcher.js?v=14b"></script>
+<script src="js/grid.js?v=14b"></script>
+<script src="js/events.js?v=14b"></script>
+<script src="js/app.js?v=14b"></script>
 <script>(function(){var m=document.getElementById("helpModal");document.getElementById("btnHelp").onclick=function(){m.hidden=false};document.getElementById("btnHelpClose").onclick=function(){m.hidden=true};m.addEventListener("click",function(e){if(e.target===m)m.hidden=true});document.addEventListener("keydown",function(e){if(e.key==="Escape")m.hidden=true});})();</script>
 <script>(function(){var b=document.getElementById("vwBody"),t=document.getElementById("btnWarnToggle");function set(c){b.hidden=c;t.textContent=c?"펼치기":"접기";try{localStorage.setItem("mh_warnCollapsed",c?"1":"0")}catch(e){}}set(localStorage.getItem("mh_warnCollapsed")==="1");t.onclick=function(){set(!b.hidden)};
 document.querySelectorAll(".openVoiceHelp").forEach(function(x){x.onclick=function(){document.getElementById("helpModal").hidden=false;var d=document.getElementById("helpVoice");d.open=true;d.scrollIntoView({block:"start"})}});})();</script>

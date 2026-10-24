@@ -108,11 +108,19 @@ header{position:relative}
 .helpbox .hk.red{border:2px solid #e33;padding:0 4px;border-radius:3px}
 .helptips li{list-style:none}
 
-.vwarn{background:#ffd23f;color:#1a1a1a;border:3px solid #ff7a00;border-radius:8px;padding:10px 16px;margin:10px 12px;line-height:1.55}
-.vwarn a,.vwarn u{color:#1a1a1a}
-.vwarn .wbig{font-size:17px;font-weight:bold;margin:4px 0}
-.vwarn p{margin:4px 0}.vwarn ol{margin:4px 0 4px 20px}
-.vwhead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.vwhead b{font-size:16px;flex:1}
-.vwarn button{background:#1a1a1a;color:#ffd23f;border:0;border-radius:5px;padding:4px 10px;cursor:pointer}
-.vwarn.inhelp{margin:6px 0 10px}
+.vwarn{background:#2a2410;border:1px solid #6b5520;border-left:6px solid #f5b301;border-radius:10px;padding:12px 16px;color:#f3e7c4;line-height:1.5}
+.vwarn em.k{font-style:normal;color:#ffc93c;font-weight:800}
+.vwhead{display:flex;align-items:center;gap:10px}
+.vwtitle{flex:1;margin:0;font-size:18px;font-weight:800;color:#fff3cf}
+.vwbtns{display:flex;gap:6px;flex-shrink:0}
+.vwarn button{background:#f5b301;color:#1a1400;border:0;border-radius:6px;padding:5px 12px;font-weight:700;cursor:pointer}
+.vwarn button#btnWarnToggle{background:transparent;color:#f5d27a;border:1px solid #6b5520}
+.vwlead{margin:8px 0 6px}
+.vwsub{margin:6px 0 4px;font-weight:700;color:#f5d27a;font-size:13px}
+.vwsteps{list-style:none;counter-reset:s;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.vwsteps li{counter-increment:s;background:rgba(0,0,0,.25);border:1px solid #4d3e18;border-radius:8px;padding:7px 9px;font-size:13px}
+.vwsteps li b{display:block;color:#ffe08a}
+.vwsteps li b::before{content:counter(s) ". ";color:#f5b301}
+.vwsteps li span{color:#e6dcc0}
+@media(max-width:760px){.vwsteps{grid-template-columns:repeat(2,1fr)}.vwhead{flex-wrap:wrap}}
+.vwarn.inhelp{margin:6px 0 10px}.vwarn.inhelp .vwtitle{font-size:16px}.vwarn.inhelp>button{margin-top:8px}
