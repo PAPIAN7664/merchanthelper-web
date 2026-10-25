@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>행상 도우미 웹 (MerchantHelper 웹 포트)</title>
-<link rel="stylesheet" href="css/style.css?v=14b">
+<link rel="stylesheet" href="css/style.css?v=15">
 </head>
 <body>
 <header>
@@ -13,13 +13,13 @@
     <p class="credit">원작: <b>烟火</b> (A1Chao) · <a href="https://github.com/A1Chao/MerchantHelper" target="_blank" rel="noopener">github.com/A1Chao/MerchantHelper</a> · 오픈소스판(<code>--no-vision</code>, 소리 인식만) 기능을 브라우저로 옮긴 비공식 포트입니다.<br>
     <b class="warn">学习交流用，禁止商业用途 — 학습·교류 전용, 상업적 이용 금지.</b> 게임 아이콘·효과음·물품 데이터의 저작권은 게임 권리자에게 있습니다.</p>
   </div>
-  <button id="btnHelp" class="primary helpbtn" type="button">❓ 사용법 / 설정 방법</button>
+  <div class="hdrbtns"><button type="button" class="openVideo vidbtn">▶ 사용 방법 영상</button><button id="btnHelp" class="primary helpbtn" type="button">❓ 사용법 / 설정 방법</button></div>
 </header>
 
 <main>
 <section id="voiceWarn" class="vwarn" style="background:#2a2410;border:1px solid #6b5520;border-left:6px solid #f5b301;border-radius:10px;padding:12px 16px;color:#f3e7c4">
 <div class="vwhead"><h2 class="vwtitle">⚠️ <em class="k">소리</em>로 찾는 도구예요 — <em class="k">대화·교전</em> 소리가 있으면 틀릴 수 있어요</h2>
-<div class="vwbtns"><button type="button" class="openVoiceHelp">목소리 분리 방법</button><button type="button" id="btnWarnToggle">접기</button></div></div>
+<div class="vwbtns"><button type="button" class="openVoiceHelp">목소리 분리 방법</button><button type="button" class="openVideo">▶ 영상</button><button type="button" id="btnWarnToggle">접기</button></div></div>
 <div id="vwBody"><p class="vwlead">화물을 드래그할 때 나는 <em class="k">소리</em>로 템을 찾아요. 화면은 격자 위치만 봐요. <em class="k">대화</em>(디코·게임 보이스), <em class="k">교전</em> 소리, 바람·환경음이 섞이면 못 찾거나 틀릴 수 있어요.</p>
 <p class="vwsub">디코 때문에 잘 안 읽힐 때</p><ol class="vwsteps">
 <li><b>잠깐 줄이기</b><span>확인하는 몇 초 동안 디코 음량 낮추기</span></li>
@@ -149,8 +149,12 @@
   </ul>
 </section>
 </main>
+<div id="videoModal" class="helpmodal" hidden><div class="helpbox vidbox" role="dialog" aria-label="사용 방법 영상">
+<div class="helphead"><h2>▶ 사용 방법 영상</h2><button id="btnVideoClose" type="button">닫기 ✕</button></div>
+<div class="vidwrap"><iframe id="vidFrame" title="사용 방법 영상" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>
+<p class="small"><a href="https://youtu.be/IPauWM1EoEo" target="_blank" rel="noopener">유튜브에서 보기 ↗</a> (영상이 안 나오면 눌러 주세요)</p></div></div>
 <div id="helpModal" class="helpmodal" hidden><div class="helpbox" role="dialog" aria-label="사용법">
-<div class="helphead"><h2>❓ 사용법 / 설정 방법</h2><button id="btnHelpClose" type="button">닫기 ✕</button></div>
+<div class="helphead"><h2>❓ 사용법 / 설정 방법</h2><button type="button" class="openVideo vidbtn">▶ 사용 방법 영상</button><button id="btnHelpClose" type="button">닫기 ✕</button></div>
 <details open><summary>1. 기본 사용 순서</summary><ol>
 <li><b>화면 공유 시작</b>: 「화면 공유 + 소리 연결」을 누르고 게임 화면(「전체 화면」 권장)을 고른 뒤 <b>「시스템 오디오도 공유」</b>를 켜세요.</li>
 <li><b>감시 시작</b>: 「▶ 감시 시작 (F8)」을 누르세요. 「작은 창으로 띄우기」로 게임 위에 띄워 둘 수 있어요.</li>
@@ -190,14 +194,17 @@
 </div></div>
 
 
-<script src="js/data.js?v=14b"></script>
-<script src="js/names_ko.js?v=14b"></script>
-<script src="js/matcher.js?v=14b"></script>
-<script src="js/grid.js?v=14b"></script>
-<script src="js/events.js?v=14b"></script>
-<script src="js/app.js?v=14b"></script>
+<script src="js/data.js?v=15"></script>
+<script src="js/names_ko.js?v=15"></script>
+<script src="js/matcher.js?v=15"></script>
+<script src="js/grid.js?v=15"></script>
+<script src="js/events.js?v=15"></script>
+<script src="js/app.js?v=15"></script>
 <script>(function(){var m=document.getElementById("helpModal");document.getElementById("btnHelp").onclick=function(){m.hidden=false};document.getElementById("btnHelpClose").onclick=function(){m.hidden=true};m.addEventListener("click",function(e){if(e.target===m)m.hidden=true});document.addEventListener("keydown",function(e){if(e.key==="Escape")m.hidden=true});})();</script>
 <script>(function(){var b=document.getElementById("vwBody"),t=document.getElementById("btnWarnToggle");function set(c){b.hidden=c;t.textContent=c?"펼치기":"접기";try{localStorage.setItem("mh_warnCollapsed",c?"1":"0")}catch(e){}}set(localStorage.getItem("mh_warnCollapsed")==="1");t.onclick=function(){set(!b.hidden)};
 document.querySelectorAll(".openVoiceHelp").forEach(function(x){x.onclick=function(){document.getElementById("helpModal").hidden=false;var d=document.getElementById("helpVoice");d.open=true;d.scrollIntoView({block:"start"})}});})();</script>
+<script>(function(){var m=document.getElementById("videoModal"),f=document.getElementById("vidFrame");function close(){m.hidden=true;f.removeAttribute("src")}
+document.querySelectorAll(".openVideo").forEach(function(b){b.onclick=function(){f.src="https://www.youtube.com/embed/IPauWM1EoEo?rel=0";m.hidden=false}});
+document.getElementById("btnVideoClose").onclick=close;m.addEventListener("click",function(e){if(e.target===m)close()});document.addEventListener("keydown",function(e){if(e.key==="Escape"&&!m.hidden)close()});})();</script>
 </body>
 </html>
