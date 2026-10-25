@@ -14,7 +14,7 @@
   const ko = (map, v) => (map[v] ? `${map[v]}` : v || "-");
 
   const NM = window.MH_NAMES || { items: {}, sounds: {} };
-  const koName = zh => (NM.items[zh] && NM.items[zh].ko) || zh;          // 못 찾은 이름은 중국어 원문 유지
+  const koName = zh => window.I18N ? I18N.itemName(zh, NM) : ((NM.items[zh] && NM.items[zh].ko) || zh);          // 못 찾은 이름은 중국어 원문 유지
   const enName = zh => (NM.items[zh] && NM.items[zh].en) || "";
   const sndName = k => NM.sounds[k] || (NM.items[k] && NM.items[k].ko) || k;
   const db = window.MH_DATA.database;
@@ -281,7 +281,7 @@
     let cands = engine.resolve(rows); const sized = tgt && !tgt.cellOnly && tgt.w && tgt.h;
     if (sized) cands = cands.filter(c => { const z = MHGrid.itemSize(c); return z && z[0] === tgt.w && z[1] === tgt.h; });
     const tot = cands.reduce((a, c) => a + Math.max(1, c.score), 0) || 1;
-    $("recentHead").textContent = `${new Date().toLocaleTimeString("ko-KR", { hour12: false })} · 소리 시작부터 ${lat.toFixed(2)}초 · ${sized ? `${tgt.w}×${tgt.h} 화물 (${tgt.c + 1}열) 크기만` : "화물 크기 모름 · 모든 크기"}${nVotes > 1 ? ` · 같은 화물 소리 ${nVotes}번 모음` : ""}`;
+    $("recentHead").textContent = `${new Date().toLocaleTimeString(I18N.lang==="ko"?"ko-KR":I18N.lang, { hour12: false })} · 소리 시작부터 ${lat.toFixed(2)}초 · ${sized ? `${tgt.w}×${tgt.h} 화물 (${tgt.c + 1}열) 크기만` : "화물 크기 모름 · 모든 크기"}${nVotes > 1 ? ` · 같은 화물 소리 ${nVotes}번 모음` : ""}`;
     const box = $("recentCards"); box.innerHTML = "";
     if (!cands.length) { box.innerHTML = `<div class="muted">${sized ? `${tgt.w}×${tgt.h} 크기 후보가 없습니다.` : "후보 없음"}</div>`; return; }
     for (const c of cands.slice(0, 8)) {
@@ -314,7 +314,7 @@
     const sig = JSON.stringify(cands.map(c => [c.name, c.score]));
     if (sig !== lastSig) {
       lastSig = sig; allCands = cands;
-      if (cands.length) { history.push({ time: new Date().toLocaleTimeString("ko-KR", { hour12: false }), items: cands }); if (history.length > 50) history.shift(); renderHistory(); }
+      if (cands.length) { history.push({ time: new Date().toLocaleTimeString(I18N.lang==="ko"?"ko-KR":I18N.lang, { hour12: false }), items: cands }); if (history.length > 50) history.shift(); renderHistory(); }
       rebuildCombos(); applyFilter();
     }
   }
@@ -383,6 +383,7 @@
     const back = () => { if (!mini || mini.w !== w) return; mini = null; $("miniBar").hidden = true; anchor.parentNode.insertBefore(document.adoptNode(panel), anchor); anchor.remove(); };
     w.addEventListener("pagehide", back); w.addEventListener("unload", back);
     keepAlive(); applySens();
+    if (window.I18N) { I18N.observe(w.document); const ms = $("miniBar"); }
     setStatus(kind === "pip" ? "작은 창(항상 위)에 후보를 표시합니다." : "팝업 창에 후보를 표시합니다. (작은 창 미지원/실패 → 팝업으로 대체, 항상 위는 아님)");
   }
   $("btnPip").onclick = async () => {
@@ -448,7 +449,7 @@
       if (tgt.manualPick) pick = null; render();
       info(`${tgt.w}×${tgt.h} 화물 → ${item.ko} ${item.conf}%${fit ? "" : " (가로×세로가 맞는 후보가 없어 전체 후보 기준)"}`);
     }
-    function priceText(p) { const n = Number(String(p).replace(/[^\d]/g, "")); return n ? (n >= 10000 ? Math.round(n / 1000) / 10 + "만" : n.toLocaleString("ko-KR")) : String(p); }
+    function priceText(p) { const n = Number(String(p).replace(/[^\d]/g, "")); if (!n) return String(p); if (I18N.lang === "ko") return n >= 10000 ? Math.round(n / 1000) / 10 + "만" : n.toLocaleString("ko-KR"); return n >= 1e6 ? Math.round(n / 1e4) / 100 + "M" : n >= 1e4 ? Math.round(n / 100) / 10 + "K" : n.toLocaleString("en-US"); }
     // 확인한 화물 이름표: 스크롤·다른 화물 소리·기록 교체에도 사라지지 않음. 같은 화물을 다시 확인할 때만 바뀜
     const checked = new Map(), checkLog = [];
     function syncChecked(L) {
@@ -462,7 +463,7 @@
     function renderCheckLog() { const box = $("checkLog"); if (!box) return; box.innerHTML = checkLog.length ? "" : '<div class="muted">아직 확인한 화물 없음</div>';
       for (const e of checkLog.slice(0, 30)) { const d = document.createElement("div"); d.className = "clrow" + (e.red ? " red" : "");
         d.innerHTML = '<img alt=""><span></span>'; const im = d.querySelector("img"); im.src = "assets/images/" + encodeURIComponent(e.image || ""); im.onerror = () => { im.style.visibility = "hidden"; };
-        d.querySelector("span").textContent = `${e.t.toLocaleTimeString("ko-KR", { hour12: false })} · ${e.c + 1}열 ${e.r + 1}줄 · ${e.w}×${e.h} · ${e.ko}${e.uniqRed ? " (빨강 확정)" : e.red ? " · 빨강 가능" : ""}`;
+        d.querySelector("span").textContent = `${e.t.toLocaleTimeString(I18N.lang==="ko"?"ko-KR":I18N.lang, { hour12: false })} · ${e.c + 1}열 ${e.r + 1}줄 · ${e.w}×${e.h} · ${e.ko}${e.uniqRed ? " (빨강 확정)" : e.red ? " · 빨강 가능" : ""}`;
         d.querySelector("span").style.color = QUALITY_COLOR[e.quality] || ""; box.appendChild(d); } }
     let lastSig = "";
     function render() {
@@ -637,7 +638,7 @@
           box.appendChild(el); }); }
       const lg = $("stLog"); lg.innerHTML = tries.length ? "" : '<div class="muted">아직 감지된 소리 없음 — 창고에서 아이템을 옮겨 보세요.</div>';
       for (const t of tries.slice().reverse().slice(0, 12)) { const cands = engine.resolve(t.rows).slice(0, 8), tot = cands.reduce((a, c) => a + Math.max(1, c.score), 0) || 1, row = document.createElement("div"); row.className = "stlog";
-        row.innerHTML = '<div class="stlh"></div><div class="recentcards"></div>'; row.querySelector(".stlh").textContent = `${t.at.toLocaleTimeString("ko-KR", { hour12: false })} · ${f0(t.db === undefined ? -99 : t.db)} dB · ${t.rows[0] ? sndName(t.rows[0].key) + " " + t.rows[0].score + "점" : "맞는 소리 없음"}${t.strong ? "" : " (약함)"} · 모든 크기 후보 ${engine.resolve(t.rows).length}개`;
+        row.innerHTML = '<div class="stlh"></div><div class="recentcards"></div>'; row.querySelector(".stlh").textContent = `${t.at.toLocaleTimeString(I18N.lang==="ko"?"ko-KR":I18N.lang, { hour12: false })} · ${f0(t.db === undefined ? -99 : t.db)} dB · ${t.rows[0] ? sndName(t.rows[0].key) + " " + t.rows[0].score + "점" : "맞는 소리 없음"}${t.strong ? "" : " (약함)"} · 모든 크기 후보 ${engine.resolve(t.rows).length}개`;
         for (const c of cands) { const col = QUALITY_COLOR[c.quality] || "#8a93a3", z = MHGrid.itemSize(c), el = document.createElement("div"); el.className = "rcard"; el.style.borderColor = col;
           el.innerHTML = '<img alt=""><div class="rn"></div><div class="rm"></div><div class="rs"></div>'; const im = el.querySelector("img"); im.src = "assets/images/" + encodeURIComponent(c.image); im.onerror = () => { im.style.visibility = "hidden"; };
           el.querySelector(".rn").textContent = koName(c.name); el.querySelector(".rn").style.color = col; el.querySelector(".rm").textContent = `${ko(QUALITY_KO, c.quality)} · ${z ? z[0] + "×" + z[1] : c.slot + "칸"}`; el.querySelector(".rs").textContent = `${c.score}점 · ${Math.round(100 * Math.max(1, c.score) / tot)}%`; row.querySelector(".recentcards").appendChild(el); }
@@ -645,24 +646,24 @@
       const sts = STEPS.map((_, i) => (s[i] || {}).st), done = sts.every(x => x === "ok"), bad = sts.indexOf("fail");
       $("stSummary").className = "stsum " + (done ? "ok" : bad >= 0 ? "fail" : sts.includes("warn") ? "warn" : "");
       $("stSummary").textContent = done ? "✅ 통과: 소리 인식이 정상입니다. 상인 화면에서 화물을 드래그하면 됩니다." : bad >= 0 ? `❌ ${bad + 1}단계에서 막혔습니다 — 위 → 안내대로 고친 뒤 다시 해 보세요.` : on ? "진행 중…" : "「사운드 테스트 시작」을 누르세요.";
-      $("stDiag").value = diag(); const mini = $("stMini"); if (mini) mini.textContent = on || tries.length ? "사운드 테스트: " + sts.map(x => ICON[x || "wait"]).join("") : "";
+      $("stDiag").value = window.I18N ? I18N.textareaT(diag()) : diag(); const mini = $("stMini"); if (mini) mini.textContent = on || tries.length ? "사운드 테스트: " + sts.map(x => ICON[x || "wait"]).join("") : "";
       $("btnStStart").textContent = on ? "다시 시작" : "사운드 테스트 시작";
     }
     function diag() {
       const tr = tries[tries.length - 1], it = picked(), vt = stream && stream.getVideoTracks()[0], surf = vt && vt.getSettings ? vt.getSettings().displaySurface : "";
-      return [`[행상도우미 사운드테스트] ${new Date().toLocaleString("ko-KR", { hour12: false })}`, `브라우저 ${browser}`,
+      return [`[행상도우미 사운드테스트] ${new Date().toLocaleString(I18N.lang==="ko"?"ko-KR":I18N.lang, { hour12: false })}`, `브라우저 ${browser}`,
         `소리모드 ${SRC.mode === "device" ? "입력장치" : "화면공유 시스템오디오"} · 장치 ${srcInfo.label || SRC.label || "-"}${isMic(srcInfo.label) ? " (마이크?)" : ""}`, `소스 ${stream ? (vt ? "화면공유(" + (surf || "?") + ")" : "장치만") : "없음"} · 오디오트랙 ${stream && stream.getAudioTracks().length ? "있음" : "없음"} · ${ctx ? sr + "Hz " + ctx.state : "-"}`,
         `레벨 최대 ${f0(lvl.max)}dB 평균 ${lvl.n ? f0(lvl.sum / lvl.n) : "-"}dB · 기준선 ${f0(dB(curThr))}dB · 넘은비율 ${hist.length ? Math.round(100 * hist.reduce((a, b) => a + b, 0) / hist.length) : 0}%`,
         `감도 ${sens}/7 · 증폭 ×${GAINS[gainIdx]}`, `단계 ${STEPS.map((_, i) => `${i + 1}${{ ok: "O", fail: "X", warn: "!", run: "…", wait: "-" }[(s[i] || {}).st || "wait"]}`).join(" ")}`,
         `매칭 ${tries.length}회${tr ? ": " + tr.rows.slice(0, 3).map(r => `${sndName(r.key)} ${r.score}`).join(", ") + (tr.strong ? "" : " (약함)") : ""}${it ? ` · 옮긴 아이템 ${koName(it.name)} ${rankOf(tr ? tr.rows : [], it) + 1 || "순위밖"}위` : ""}`].join("\n");
     }
     reset();
-    const dl = $("stItems"); for (const i of db.items.concat(db.special_items)) { const o = document.createElement("option"); o.value = koName(i.name); dl.appendChild(o); }
+    const dl = $("stItems"); const fillDl = () => { dl.innerHTML = ""; for (const i of db.items.concat(db.special_items)) { const o = document.createElement("option"); o.value = koName(i.name); dl.appendChild(o); } }; fillDl(); window.addEventListener("mh-lang", fillDl);
     $("btnStStart").onclick = () => { setMode(true); start(); }; $("btnStStop").onclick = () => stop();
     function setMode(v) { $("optTestMode").checked = v; $("stBody").hidden = !v; $("stPanel").classList.toggle("open", v); document.body.classList.toggle("testmode", v); if (!v) stop(); }
     $("optTestMode").addEventListener("change", e => { setMode(e.target.checked); if (e.target.checked) start(); });
     $("stItem").addEventListener("change", () => { judge(); render(); });
-    $("btnStCopy").onclick = async () => { const tx = diag(); try { await navigator.clipboard.writeText(tx); $("btnStCopy").textContent = "복사됨 ✔"; } catch (e) { $("stDiag").select(); document.execCommand("copy"); $("btnStCopy").textContent = "복사됨"; } setTimeout(() => { $("btnStCopy").textContent = "진단 글 복사"; }, 1500); };
+    $("btnStCopy").onclick = async () => { const tx = window.I18N ? I18N.textareaT(diag()) : diag(); try { await navigator.clipboard.writeText(tx); $("btnStCopy").textContent = "복사됨 ✔"; } catch (e) { $("stDiag").select(); document.execCommand("copy"); $("btnStCopy").textContent = "복사됨"; } setTimeout(() => { $("btnStCopy").textContent = "진단 글 복사"; }, 1500); };
     document.querySelectorAll(".btnSoundTest").forEach(b => b.addEventListener("click", () => { try { window.focus(); } catch (e) {} setMode(true); start(); }));
     render();
     return { get on() { return on; }, feed, start, setMode, stop, noAudio: () => { noAudioErr = true; }, state: () => ({ steps: STEPS.map((_, i) => s[i]), tries, diag: diag() }) };
