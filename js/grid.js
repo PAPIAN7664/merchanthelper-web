@@ -38,21 +38,51 @@
   function fill(g, w, x0, x1, y0, y1, t) { let s = 0, n = 0; for (let y = y0 | 0; y < y1; y++) for (let x = x0 | 0; x < x1; x++) { if (g[y * w + x] >= t) s++; n++; } return n ? s / n : 0; }
   function mean(g, w, x0, x1, y0, y1) { let s = 0, n = 0; for (let y = y0 | 0; y < y1; y++) for (let x = x0 | 0; x < x1; x++) { s += g[y * w + x]; n++; } return n ? s / n : 0; }
 
-  function detect(g, w, h, hintLevel) {
+  function detect(g, w, h, hintLevel, hint) {
+    if (hint && !hint.ok) hint = null;
     const { V, H } = lineMaps(g, w, h);
     const S = h / 720, pmin = 26 * S, pmax = 70 * S;
     const col = new Float32Array(w); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) col[x] += V[y * w + x];
-    const cx = chain(peaks(col, h * 0.1), pmin, pmax); if (!cx || cx.n < 4) return null;
+    let cx = chain(peaks(col, h * 0.1), pmin, pmax), hinted = false;
+    // 고정 격자(hint): 템창·가격 설명창이 격자 일부를 가리면 보이는 선이 짧아져 격자가 줄어들거나 어긋남.
+    // 전에 확실히 잡은 격자 자리의 세로선이 아직 충분히 보이면(창이 그대로 있음) 그 격자를 그대로 씀
+    if (hint) {
+      let seen = 0; for (let k = 0; k <= hint.ncol; k++) { const x = Math.round(hint.gx0 + k * hint.p); if (x < 2 || x >= w - 2) continue; let m = 0; for (let d = -2; d <= 2; d++) m = Math.max(m, col[x + d]); if (m >= h * 0.04) seen++; }
+      const compat = cx && Math.abs(cx.p - hint.p) < 2 && Math.abs(((cx.start - hint.gx0) / hint.p) - Math.round((cx.start - hint.gx0) / hint.p)) * hint.p < 4;
+      const cxR = cx ? cx.start + cx.n * cx.p : 0, hR = hint.gx0 + hint.ncol * hint.p;
+      const covers = compat && cx.start <= hint.gx0 + 4 && cxR >= hR - 4;
+      if (seen >= Math.max(3, Math.ceil((hint.ncol + 1) * 0.35)) && !covers) { cx = { start: hint.gx0, p: hint.p, n: hint.ncol }; hinted = true; }
+    }
+    if (!cx || cx.n < 4) return null;
     const refine = (proj, st, pp, n) => { let bo = 0, bs = -1; for (let o = -4; o <= 4; o++) { let sc = 0; for (let k = 0; k <= n; k++) { const q = Math.round(st + o + k * pp); if (q >= 0 && q < proj.length) sc += proj[q]; } if (sc > bs) { bs = sc; bo = o; } } return st + bo; };
-    cx.start = refine(col, cx.start, cx.p, cx.n);
+    if (!hinted) cx.start = refine(col, cx.start, cx.p, cx.n);
     // 왼쪽으로 늘리기: 큰 화물만 있는 줄은 안쪽 세로선이 없어 사슬이 중간 열에서 시작함 → 칸 크기 배수 위치에 약한 선(격자 왼쪽 테두리)이 있으면 거기까지 늘림
-    { let add = 0; for (let k = 1; k <= 8; k++) { const x = Math.round(cx.start - k * cx.p); if (x < 3) break; let m = 0; for (let d = -2; d <= 2; d++) m = Math.max(m, col[x + d]); if (m >= h * 0.04) add = k; } if (add) { cx.start -= add * cx.p; cx.n += add; } }
+    if (!hinted) { let add = 0; for (let k = 1; k <= 8; k++) { const x = Math.round(cx.start - k * cx.p); if (x < 3) break; let m = 0; for (let d = -2; d <= 2; d++) m = Math.max(m, col[x + d]); if (m >= h * 0.04) add = k; } if (add) { cx.start -= add * cx.p; cx.n += add; } }
     const p = cx.p, gx0 = Math.round(cx.start), gx1 = Math.round(cx.start + cx.n * p);
     const row = new Float32Array(h); for (let y = 0; y < h; y++) { let s = 0; for (let x = gx0; x < gx1; x++) s += H[y * w + x]; row[y] = s; }
-    const cy = chain(peaks(row, (gx1 - gx0) * 0.25), pmin, pmax, p); if (!cy || cy.n < 2) return null;
+    let cy = chain(peaks(row, (gx1 - gx0) * 0.25), pmin, pmax, p);
+    const colsMatch = hint && (hinted || (Math.abs(p - hint.p) < 2 && Math.abs((gx0 - hint.gx0) / hint.p - Math.round((gx0 - hint.gx0) / hint.p)) * hint.p < 4));
+    const phase = v => { const d = ((v - hint.gy0) % hint.py + hint.py) % hint.py; return Math.min(d, hint.py - d); };
+    const sup = (st, pp, n) => { let sc = 0; for (let k = 0; k <= n; k++) { const q = Math.round(st + k * pp); let m = 0; for (let d = -2; d <= 2; d++) if (q + d >= 0 && q + d < h) m = Math.max(m, row[q + d]); sc += m; } return sc; };
+    const hk0 = colsMatch ? Math.floor((hint.y0 - hint.gy0) / hint.py + 0.5) : 0, hn = colsMatch ? Math.round((hint.y1 - hint.y0) / hint.py) : 0;
+    // 줄 위치가 어긋나 보이면(툴팁 속 가로선) 마지막 격자 줄 위치에 선이 충분히 남아 있을 때 그쪽을 믿음. 스크롤 중이면 그 자리에 선이 없어 원래대로
+    if (colsMatch && cy && phase(cy.start) > 2 && sup(hint.gy0 + hk0 * hint.py, hint.py, hn) >= 0.6 * sup(cy.start, cy.p, cy.n)) cy = null;
+    if (colsMatch && (!cy || Math.abs(cy.p - hint.py) > 2)) { // 가로선도 가려짐 → 마지막으로 본 줄 위치
+      cy = { start: hint.gy0 + hk0 * hint.py, p: hint.py, n: hn };
+    }
+    if (!cy || cy.n < 2) return null;
     cy.start = refine(row, cy.start, cy.p, cy.n);
     let r0 = 0, r1 = cy.n; const band = r => { let ok = 0; for (let c = 0; c <= cx.n; c++) if (frac(V, w, Math.round(cx.start + c * p), 0, Math.round(cy.start + r * cy.p + 4), Math.round(cy.start + (r + 1) * cy.p - 4), false) > 0.6) ok++; return ok >= 3; };
-    while (r0 < r1 && !band(r0)) r0++; while (r1 > r0 && !band(r1 - 1)) r1--; if (r1 - r0 < 2) return null;
+    while (r0 < r1 && !band(r0)) r0++; while (r1 > r0 && !band(r1 - 1)) r1--;
+    if (colsMatch) { // 가려진 줄도 격자 화면 범위 안이면 포함
+      const tol = cy.p * 0.3, lo = Math.ceil((hint.y0 - tol - cy.start) / cy.p), hi = Math.floor((hint.y1 + tol - cy.start) / cy.p);
+      // 선이 안 보이는 줄은 어두울 때(툴팁)만 넣음. 회색(화물 아래쪽이 잘린 줄 등)이면 원래대로 뺌
+      const inImg = r => cy.start + r * cy.p >= 0 && cy.start + (r + 1) * cy.p <= h - 1;
+      const okRow = r => inImg(r) && 1 - fill(g, w, gx0, gx1, Math.round(cy.start + r * cy.p + 3), Math.round(cy.start + (r + 1) * cy.p - 3), 13) >= 0.4;
+      if (r1 <= r0) { let best = -1, bl = 0; for (let r = lo; r < hi; r++) { let k = r; while (k < hi && okRow(k)) k++; if (k - r > bl) { bl = k - r; best = r; } } if (best >= 0) { r0 = best; r1 = best + bl; } }
+      else { while (r0 > lo && okRow(r0 - 1)) r0--; while (r1 < hi && okRow(r1)) r1++; }
+    }
+    if (r1 - r0 < 2) return null;
     const ncol = cx.n, nrow = r1 - r0, py = cy.p, gy0 = cy.start + r0 * cy.p;
     const X = c => Math.round(gx0 + c * p), Y = r => Math.round(gy0 + r * py);
     const val = [], occ = [];
@@ -66,6 +96,17 @@
     const ref = Math.max(L, hintLevel || 0);
     const thr = ref ? Math.max(8, ref * 0.8) : 12;
     for (let i = 0; i < med.length; i++) occ.push(med[i] >= thr);
+    // 가려진 칸: 어두운데(빈 칸처럼 보임) 칸 테두리 선이 거의 안 보임 → 툴팁·설명창이 덮은 칸. 진짜 빈 칸은 테두리가 보임
+    const covered = new Array(med.length).fill(false); let ncov = 0;
+    for (let r = 0; r < nrow; r++) for (let c = 0; c < ncol; c++) { const i = r * ncol + c; if (occ[i]) continue;
+      const ya = Math.round(Y(r) + py * .2), yb = Math.round(Y(r + 1) - py * .2), xa = Math.round(X(c) + p * .2), xb = Math.round(X(c + 1) - p * .2);
+      const ev = (frac(V, w, X(c), 0, ya, yb, false) > 0.5) + (frac(V, w, X(c + 1), 0, ya, yb, false) > 0.5), e = ev + (frac(H, w, xa, xb, Y(r), 0, true) > 0.5) + (frac(H, w, xa, xb, Y(r + 1), 0, true) > 0.5);
+      if (e <= 1 || ev === 0) covered[i] = true; }
+    // 툴팁은 여러 칸을 덮으므로 2×2 이상 이어진 덩어리만 가림으로 봄 (어두운 화물 한두 칸을 가림으로 착각하지 않게)
+    { const seenC = new Uint8Array(med.length); for (let i = 0; i < med.length; i++) { if (!covered[i] || seenC[i]) continue; const st = [i], grp = []; seenC[i] = 1; let c0 = 99, c1 = -1, r0c = 99, r1c = -1;
+        while (st.length) { const j = st.pop(); grp.push(j); const c = j % ncol, r = (j / ncol) | 0; c0 = Math.min(c0, c); c1 = Math.max(c1, c); r0c = Math.min(r0c, r); r1c = Math.max(r1c, r);
+          for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const cc = c + dc, rr = r + dr; if (cc < 0 || rr < 0 || cc >= ncol || rr >= nrow) continue; const q = rr * ncol + cc; if (covered[q] && !seenC[q]) { seenC[q] = 1; st.push(q); } } }
+        if (grp.length >= 4 && c1 > c0 && r1c > r0c) ncov += grp.length; else for (const j of grp) covered[j] = false; } }
     // 테두리 선이 없으면 같은 화물
     const par = val.map((_, i) => i); const find = i => par[i] === i ? i : (par[i] = find(par[i]));
     for (let r = 0; r < nrow; r++) for (let c = 0; c < ncol; c++) {
@@ -75,25 +116,40 @@
     }
     const comps = new Map();
     for (let i = 0; i < val.length; i++) if (occ[i]) { const k = find(i), c = i % ncol, r = (i / ncol) | 0; const o = comps.get(k) || { c0: c, c1: c, r0: r, r1: r, n: 0 }; o.c0 = Math.min(o.c0, c); o.c1 = Math.max(o.c1, c); o.r0 = Math.min(o.r0, r); o.r1 = Math.max(o.r1, r); o.n++; comps.set(k, o); }
-    const cargos = [...comps.values()].map(o => ({ c: o.c0, r: o.r0, w: o.c1 - o.c0 + 1, h: o.r1 - o.r0 + 1, rect: o.n === (o.c1 - o.c0 + 1) * (o.r1 - o.r0 + 1), edge: o.r0 === 0 || o.r1 === nrow - 1 }));
+    const nearCov = o => { for (let r = o.r0 - 1; r <= o.r1 + 1; r++) for (let c = o.c0 - 1; c <= o.c1 + 1; c++) { if (r < 0 || c < 0 || r >= nrow || c >= ncol) continue; if ((r < o.r0 || r > o.r1) && (c < o.c0 || c > o.c1)) continue; if (covered[r * ncol + c]) return true; } return false; };
+    const cargos = [...comps.values()].filter(o => !ncov || !nearCov(o)).map(o => ({ c: o.c0, r: o.r0, w: o.c1 - o.c0 + 1, h: o.r1 - o.r0 + 1, rect: o.n === (o.c1 - o.c0 + 1) * (o.r1 - o.r0 + 1), edge: o.r0 === 0 || o.r1 === nrow - 1 }));
     const dark = [], text = [];
     for (let r = 0; r < nrow; r++) for (let c = 0; c < ncol; c++) { dark.push(fill(g, w, X(c) + 3, X(c + 1) - 3, Y(r) + 3, Y(r + 1) - 3, 13) ); text.push(fill(g, w, X(c) + 3, X(c + 1) - 3, Y(r) + 3, Y(r + 1) - 3, 150)); }
     for (let i = 0; i < dark.length; i++) dark[i] = 1 - dark[i];
     // 스크롤 추적용 세로 프로필
     const prof = new Float32Array(h); for (let y = 0; y < h; y++) { let s = 0; for (let x = gx0; x < gx1; x += 2) s += g[y * w + x]; prof[y] = s / ((gx1 - gx0) / 2); }
-    return { gx0, gy0, p, py, ncol, nrow, occ, val, med, level: L, dark, text, cargos, prof, w, h };
+    for (let i = 0; i < occ.length; i++) if (covered[i]) occ[i] = null; // 가려진 칸은 투표에서 빠짐
+    return { hinted, covered, ncov, gx0, gy0, p, py, ncol, nrow, occ, val, med, level: L, dark, text, cargos, prof, w, h };
   }
 
   // det 의 열을 dc 만큼 오른쪽으로 옮겨 열 수를 ncol 로 맞춤 (왼쪽 모르는 칸은 occ=null → 투표·비교에서 빠짐)
   function shiftCols(det, dc, ncol) {
     const old = det.ncol, remap = (arr, fillv) => { if (!arr) return arr; const out = []; for (let r = 0; r < det.nrow; r++) for (let c = 0; c < ncol; c++) { const oc = c - dc; out.push(oc >= 0 && oc < old ? arr[r * old + oc] : fillv); } return out; };
-    det.occ = remap(det.occ, null); det.val = remap(det.val, 0); det.dark = remap(det.dark, 0); det.text = remap(det.text, 0); det.med = remap(det.med, 0);
+    det.occ = remap(det.occ, null); det.val = remap(det.val, 0); det.dark = remap(det.dark, 0); det.text = remap(det.text, 0); det.med = remap(det.med, 0); det.covered = remap(det.covered, false);
     det.cargos = det.cargos.map(k => Object.assign({}, k, { c: k.c + dc }));
     det.gx0 = det.gx0 - dc * det.p; det.ncol = ncol; det.colShift = dc;
   }
   // 여러 프레임을 하나의 전체 격자로 합침 (스크롤 추적 + 프레임 투표로 깜빡임 제거)
   class GridTracker {
-    constructor() { this.level = 0; this.reset(); }
+    constructor() { this.level = 0; this.hintGeo = null; this.geoCand = null; this.reset(); }
+    // 확실히 잡은 격자(3프레임 연속 같은 모양). detect 의 다섯째 인자로 넘김
+    hint() { return this.hintGeo; }
+    geoFit(a, b) { return Math.abs(a.p - b.p) < 1.5 && Math.abs(a.gx0 - b.gx0) < 3 && a.ncol === b.ncol && Math.abs(a.y0 - b.y0) < 5 && Math.abs(a.y1 - b.y1) < 5; }
+    updateGeo(det) {
+      if (det.hinted) { if (this.hintGeo) this.hintGeo.gy0 = det.gy0 + 0; return; }
+      const g = { gx0: det.gx0, p: det.p, py: det.py, ncol: det.ncol, y0: det.gy0, y1: det.gy0 + det.nrow * det.py, gy0: det.gy0, n: 1 };
+      const c = this.geoCand; if (c && this.geoFit(c, g)) { c.n++; c.gy0 = g.gy0; } else this.geoCand = g;
+      const k = this.geoCand, H = this.hintGeo;
+      if (k.n >= 3 && (!H || this.geoFit(H, k) || k.ncol * (k.y1 - k.y0) >= H.ncol * (H.y1 - H.y0) * 0.98 || k.n >= 10)) this.hintGeo = Object.assign({ ok: true }, k);
+      if (this.hintGeo && this.geoFit(this.hintGeo, g)) this.hintGeo.gy0 = g.gy0;
+    }
+    // 고정 격자와 칸 크기·열 위치가 안 맞는 프레임(가려져서 격자가 무너짐)은 판단에 쓰지 않음
+    misfit(det) { const H = this.hintGeo; if (!H || det.hinted) return false; if (Math.abs(det.p - H.p) >= 2) return true; const q = (det.gx0 - H.gx0) / H.p; return Math.abs(q - Math.round(q)) * H.p >= 4; }
     reset() { this.epoch = (this.epoch || 0) + 1; this.cells = new Map(); this.obs = new Map(); this.manual = new Map(); this.items = new Map(); this.base = null; this.scroll = 0; this.prev = null; this.ncol = 0; this.hover = null; this.hoverT = -1e9; this.drag = null; this.dragT = -1e9; this.lostT = null; this.lastOff = undefined; this.bad = 0; this.changedScreen = false; this.frames = 0; this.seen = 0; this._list = null; }
     shift(a, b, y0, y1) {
       const span = y1 - y0, lim = Math.round(Math.min(span * 0.75, (this.prev ? this.prev.py : 43) * 2)); let best = 0, bs = 1e9; /* 한 프레임에 2칸 넘게는 안 움직인다고 봄(격자 무늬가 반복돼 먼 위치와 헷갈림) */
@@ -108,6 +164,8 @@
       if (!det) { if (this.lostT === null) this.lostT = t; this.prev = null; return null; }
       // 화물창이 5초 넘게 안 보였다가 다시 나오면 새 화물창으로 보고 자동 초기화 (수동 기록이 없을 때만)
       if (this.lostT !== null && t - this.lostT > 5 && !this.manual.size && !this.items.size) this.reset();
+      this.updateGeo(det);
+      if (this.misfit(det) && !(this.hintGeo && this.geoFit(this.hintGeo, det))) { det.rejected = true; this.lostT = null; return det; }
       this.lostT = null; this.seen++;
       // 열 위치 고정: 아래쪽 줄에 큰 화물만 보이면 왼쪽 세로선이 약해 격자가 몇 열 오른쪽에서 시작하는 것으로 잡힘(9열→6열).
       // 처음 잡은 격자 왼쪽 끝(gx0)·칸 크기와 맞춰 열 번호를 되돌림
@@ -157,7 +215,7 @@
       if (moving) return det;
       // 1) 바뀐 칸 찾기: 전에 화물이던 칸이 지금 어두움 → 툴팁에 가려졌거나 드래그로 비었음
       const changed = [], ncol = det.ncol; let txt = 0;
-      for (let r = 0; r < det.nrow; r++) for (let c = 0; c < ncol; c++) { const i = r * ncol + c, key = (r + off) + "," + c; if (det.occ[i] === false && this.stableOcc(key)) { const o = this.cells.get(key); if (o.dk === undefined) o.dk = t; if (t - o.dk > 1.5 && det.text[i] < 0.015) continue; /* 1.5초 넘게 비어 있으면 툴팁·드래그가 아니라 정말 빈 칸(구매됨) */ changed.push([c, r]); txt += det.text[i]; } else { const o = this.cells.get(key); if (o) o.dk = undefined; } }
+      for (let r = 0; r < det.nrow; r++) for (let c = 0; c < ncol; c++) { const i = r * ncol + c, key = (r + off) + "," + c; const cov = det.covered && det.covered[i]; if ((det.occ[i] === false || cov) && this.stableOcc(key)) { const o = this.cells.get(key); if (o.dk === undefined) o.dk = t; if (!cov && t - o.dk > 1.5 && det.text[i] < 0.015) continue; /* 1.5초 넘게 비어 있으면 툴팁·드래그가 아니라 정말 빈 칸(구매됨) */ changed.push([c, r]); txt += det.text[i]; } else { const o = this.cells.get(key); if (o) o.dk = undefined; } }
       let hoverCell = null, dragged = null;
       if (changed.length) {
         if (txt / changed.length > 0.015 && g) hoverCell = this.cursorCell(det, changed, g);

@@ -412,7 +412,7 @@
       ensureCanvas(dw, dh); c2d.drawImage(src, sx, 0, sw, H, 0, 0, dw, dh);
       const d = c2d.getImageData(0, 0, dw, dh).data; if (!gray || gray.length !== dw * dh) gray = new Uint8Array(dw * dh);
       for (let i = 0, j = 0; i < gray.length; i++, j += 4) gray[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
-      const det = MHGrid.detect(gray, dw, dh, tracker.level); tracker.push(det, now(), gray); frames++; lastDet = det;
+      const det = MHGrid.detect(gray, dw, dh, tracker.level, tracker.hint()); tracker.push(det, now(), gray); frames++; if (!det || !det.rejected) lastDet = det;
       if (det && !found) { found = true; }
       render();
     }

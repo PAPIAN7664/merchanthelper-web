@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>행상 도우미 웹 (MerchantHelper 웹 포트)</title>
-<link rel="stylesheet" href="css/style.css?v=16">
+<link rel="stylesheet" href="css/style.css?v=17">
 </head>
 <body>
 <header>
@@ -194,14 +194,14 @@
 </div></div>
 
 
-<script src="js/i18n_dict.js?v=16"></script>
-<script src="js/i18n.js?v=16"></script>
-<script src="js/data.js?v=16"></script>
-<script src="js/names_ko.js?v=16"></script>
-<script src="js/matcher.js?v=16"></script>
-<script src="js/grid.js?v=16"></script>
-<script src="js/events.js?v=16"></script>
-<script src="js/app.js?v=16"></script>
+<script src="js/i18n_dict.js?v=17"></script>
+<script src="js/i18n.js?v=17"></script>
+<script src="js/data.js?v=17"></script>
+<script src="js/names_ko.js?v=17"></script>
+<script src="js/matcher.js?v=17"></script>
+<script src="js/grid.js?v=17"></script>
+<script src="js/events.js?v=17"></script>
+<script src="js/app.js?v=17"></script>
 <script>(function(){var m=document.getElementById("helpModal");document.getElementById("btnHelp").onclick=function(){m.hidden=false};document.getElementById("btnHelpClose").onclick=function(){m.hidden=true};m.addEventListener("click",function(e){if(e.target===m)m.hidden=true});document.addEventListener("keydown",function(e){if(e.key==="Escape")m.hidden=true});})();</script>
 <script>(function(){var b=document.getElementById("vwBody"),t=document.getElementById("btnWarnToggle");function set(c){b.hidden=c;t.textContent=c?"펼치기":"접기";try{localStorage.setItem("mh_warnCollapsed",c?"1":"0")}catch(e){}}set(localStorage.getItem("mh_warnCollapsed")==="1");t.onclick=function(){set(!b.hidden)};
 document.querySelectorAll(".openVoiceHelp").forEach(function(x){x.onclick=function(){document.getElementById("helpModal").hidden=false;var d=document.getElementById("helpVoice");d.open=true;d.scrollIntoView({block:"start"})}});})();</script>
