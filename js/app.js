@@ -26,7 +26,7 @@
   const wavList = () => Object.entries(window.MH_DATA.sounds).map(([file, b64]) => ({ file, buffer: b64ToBuf(b64) }));
   function initMatcher() {
     try {
-      const src = `const MHW=(${MH_FACTORY.toString()})();let m=null;\nonmessage=e=>{const d=e.data;try{if(d.type==='init'){m=new MHW.SoundMatcher(d.db).loadTemplates(d.wavs);postMessage({id:d.id,ok:true,n:m.templates.length,errors:m.errors});}else if(d.type==='match'){const rows=m.match(d.x,d.sr,d.limit,d.bg);let weak=[];if(!rows.length&&d.weak)weak=m.weakCandidates(d.x,d.sr,d.limit,d.bg);postMessage({id:d.id,rows,reason:m.lastReason,weak});}}catch(err){postMessage({id:d.id,error:String(err)});}};`;
+      const src = `const MHW=(${MH_FACTORY.toString()})();let m=null;\nonmessage=e=>{const d=e.data;try{if(d.type==='init'){m=new MHW.SoundMatcher(d.db).loadTemplates(d.wavs);postMessage({id:d.id,ok:true,n:m.templates.length,errors:m.errors});}else if(d.type==='match'){const rows=m.match(d.x,d.sr,d.limit,d.bg,d.noise);let weak=[];if(!rows.length&&d.weak)weak=m.weakCandidates(d.x,d.sr,d.limit,d.bg);postMessage({id:d.id,rows,reason:m.lastReason,weak});}}catch(err){postMessage({id:d.id,error:String(err)});}};`;
       worker = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
       worker.onmessage = e => { const p = pending.get(e.data.id); if (p) { pending.delete(e.data.id); p(e.data); } };
       worker.onerror = () => { if (worker) { worker = null; fallbackLocal(); } };
@@ -36,8 +36,9 @@
   function fallbackLocal() { localMatcher = new MH.SoundMatcher(db).loadTemplates(wavList()); return Promise.resolve({ n: localMatcher.templates.length, errors: localMatcher.errors, local: true }); }
   function call(msg) { return new Promise(res => { const id = ++reqId; msg.id = id; pending.set(id, res); worker.postMessage(msg); }); }
   function match(x, sr, bg, weak) {
-    if (worker) return call({ type: "match", x, sr, bg, limit: LIMIT, weak });
-    const rows = localMatcher.match(x, sr, LIMIT, bg);
+    const noise = NOISE.prof;
+    if (worker) return call({ type: "match", x, sr, bg, limit: LIMIT, weak, noise });
+    const rows = localMatcher.match(x, sr, LIMIT, bg, noise);
     return Promise.resolve({ rows, reason: localMatcher.lastReason, weak: !rows.length && weak ? localMatcher.weakCandidates(x, sr, LIMIT, bg) : [] });
   }
 
@@ -57,7 +58,7 @@
   document.querySelectorAll(".sensDn,.sensUp,.gainDn,.gainUp").forEach(b => b.addEventListener("click", () => { // 버튼마다 붙임: 작은 창(PiP)으로 옮겨도 동작
     if (b.classList.contains("sensDn")) sens = Math.max(1, sens - 1); else if (b.classList.contains("sensUp")) sens = Math.min(7, sens + 1);
     else if (b.classList.contains("gainDn")) gainIdx = Math.max(0, gainIdx - 1); else gainIdx = Math.min(GAINS.length - 1, gainIdx + 1);
-    applySens(); setStatus(`감도 ${sens}/7 · 증폭 ×${GAINS[gainIdx]} (빨간 선 = 소리 감지 기준. 화물 소리 때 막대가 선을 넘어야 인식 시작)`); }));
+    applySens(); if (typeof syncNoiseUI === "function") syncNoiseUI(); setStatus(`감도 ${sens}/7 · 증폭 ×${GAINS[gainIdx]} (빨간 선 = 소리 감지 기준. 화물 소리 때 막대가 선을 넘어야 인식 시작)`); }));
   let active = false, busy = false, lastAudioTrigger = 0, prevPeak = 0, levelPeak = 0, levelNow = 0, heardT = -1e9;
 
   function resetRing() { if (ring) ring.fill(0); ringPos = 0; ringFilled = 0; sinceUpdate = 0; latest = null; prevPeak = 0; }
@@ -71,6 +72,7 @@
     meterAcc += block.length; if (meterAcc >= sr * 0.1) { meterAcc = 0; drawMeter(); }
     tgtAcc += block.length; if (tgtAcc >= sr * 0.05) { tgtAcc = 0; if (active) recordTarget(); } // 50ms마다 대상 화물 기록 (빠른 연속 드래그 구분용)
     if (ST.on) ST.feed(block);
+    if (NOISE.rec) noiseFeed(block);
     if (!active) return; // 원본: 감시 중이 아니면 오디오를 쌓지 않음
     const n = ring.length;
     for (let i = 0; i < block.length; i++) { ring[ringPos] = block[i]; ringPos = (ringPos + 1) % n; }
@@ -97,6 +99,28 @@
     handleTrigger("소리 감지");
   }
 
+  // ---------- 주변 소음 학습 (게임 안 바람·환경음) ----------
+  // 화물을 건드리지 않고 3초 동안 주변 소리만 들려 주면, 대역별 소음 크기를 기억해 두고
+  // ① 저역 차단 판정의 배경값 ② 매칭 때 대역별 소음 빼기 ③ 인식 기준을 85→80으로 완화(소음 속 정답 점수가 80대로 떨어짐)에 씀
+  const NOISE = { prof: null, bandBg: 0, gain: 0, at: 0, rec: null };
+  try { const n = JSON.parse(localStorage.getItem("mh_noise") || "null"); if (n && n.prof && n.prof.hp) Object.assign(NOISE, n); } catch (e) {}
+  const NOISY_MIN_SCORE = 80;
+  function noiseOk() { return !!NOISE.prof && NOISE.gain === gainIdx; }
+  function syncNoiseUI() { const on = noiseOk(); scanner.minScore = on ? NOISY_MIN_SCORE : GOOD_ENOUGH_SCORE;
+    document.querySelectorAll(".noiseState").forEach(e => e.textContent = NOISE.rec ? "학습 중…" : on ? "소음 학습됨" : NOISE.prof ? "증폭이 바뀌어 다시 학습 필요" : "소음 학습 안 함");
+    document.querySelectorAll(".noiseClear").forEach(b => b.hidden = !NOISE.prof); }
+  function noiseFeed(block) { const R = NOISE.rec; if (!R) return; R.parts.push(Float32Array.from(block)); R.n += block.length;
+    if (R.n >= 3 * sr) { NOISE.rec = null; const x = new Float32Array(R.n); let o = 0; for (const b of R.parts) { x.set(b, o); o += b.length; }
+      const prof = MH.SoundMatcher.prototype.noiseProfile.call(null, x, sr);
+      if (!prof) { setStatus("주변 소음 학습 실패: 소리가 너무 짧습니다."); syncNoiseUI(); return; }
+      Object.assign(NOISE, { prof, bandBg: MHOnset.bandBg(x, sr), gain: gainIdx, at: Date.now() });
+      try { localStorage.setItem("mh_noise", JSON.stringify({ prof: NOISE.prof, bandBg: NOISE.bandBg, gain: NOISE.gain, at: NOISE.at })); } catch (e) {}
+      setStatus(`주변 소음 학습 완료 (소음 크기 ${prof.rms.toFixed(5)}). 이제 소음을 빼고 인식합니다. 장소를 옮기면 다시 학습하세요.`); syncNoiseUI(); } }
+  document.querySelectorAll(".noiseLearn").forEach(b => b.addEventListener("click", () => {
+    if (!ctx || !stream) { setStatus("먼저 소리 소스를 연결하세요. (화면 공유 또는 입력 장치)"); return; }
+    NOISE.rec = { parts: [], n: 0 }; syncNoiseUI(); setStatus("주변 소음 학습 중… 3초 동안 화물을 건드리지 말고 그대로 두세요."); }));
+  document.querySelectorAll(".noiseClear").forEach(b => b.addEventListener("click", () => { Object.assign(NOISE, { prof: null, bandBg: 0, gain: 0, at: 0, rec: null }); try { localStorage.removeItem("mh_noise"); } catch (e) {} syncNoiseUI(); setStatus("학습한 주변 소음을 지웠습니다."); }));
+
   // ---------- 연속 소리 인식 (간격 제한 없음) ----------
   // 0.2초마다(매칭이 더 걸리면 끝나는 대로) 마지막 1초를 매칭 → 소리가 '언제' 났는지 찾음. 같은 소리의 겹친 검출은 합치고,
   // 그 시각에 마우스/드래그 중이던 화물에 붙임. 같은 화물에서 여러 번 나면 점수를 모음(평균)
@@ -114,8 +138,9 @@
         const t0 = audioNow();
         if (ringFilled >= SCAN_WIN * sr) {
           const w = lastSeconds(SCAN_WIN), bg = latest ? latest.bg : MH.backgroundLevel(w, sr), S = SENS[sens];
-          const fr = Math.round(sr / 50); const pk = framePeak(w, 0, w.length, fr), thr = Math.max(S.floor, bg * S.bgMul); curThr = thr; levelNow = pk;
-          if (pk >= thr) {
+          // 전대역 기준(기존) 또는 저역(바람 등) 차단 신호 기준 중 하나만 넘어도 매칭 시도
+          const gt = MHOnset.gate(w, sr, S, bg, true, noiseOk() ? NOISE.bandBg : 0); curThr = gt.thr; levelNow = gt.pk;
+          if (gt.hit) {
             const tm = performance.now(); const r = await match(w, sr, MH.backgroundLevel(w, sr), false);
             for (const ev of scanner.process(r.rows || [], t0 - SCAN_WIN, t0)) onSoundEvent(ev, r.reason, performance.now() - tm);
           }
@@ -412,6 +437,7 @@
       ensureCanvas(dw, dh); c2d.drawImage(src, sx, 0, sw, H, 0, 0, dw, dh);
       const d = c2d.getImageData(0, 0, dw, dh).data; if (!gray || gray.length !== dw * dh) gray = new Uint8Array(dw * dh);
       for (let i = 0, j = 0; i < gray.length; i++, j += 4) gray[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
+      if (snapWant) { snapWant = false; showSnap(); }
       const det = MHGrid.detect(gray, dw, dh, tracker.level, tracker.hint()); tracker.push(det, now(), gray); frames++; if (!det || !det.rejected) lastDet = det;
       if (det && !found) { found = true; }
       render();
@@ -516,6 +542,27 @@
     $("gridBox").querySelectorAll("[data-size]").forEach(b => b.addEventListener("click", () => { size = size === b.dataset.size ? null : b.dataset.size; $("gridBox").querySelectorAll("[data-size]").forEach(x => x.classList.toggle("sel", x.dataset.size === size)); info(size ? (size === "del" ? "지울 화물을 누르세요." : `${size.replace("x", "×")} 크기: 화물의 왼쪽 위 칸을 누르세요. (버튼을 다시 누르면 해제)`) : "직접 지정 해제"); if (size && size !== "del") { const [w, h] = size.split("x").map(Number); setListSize(w, h, "크기 버튼"); } lastSig = ""; render(); }));
     $("btnGridReset").onclick = () => { tracker.reset(); pick = null; lastSig = ""; render(); info("격자를 비웠습니다."); };
     function refresh() { lastSig = ""; render(); }
+    // ---- 격자 직접 지정: 지금 화면(오른쪽 절반)을 보여 주고 격자 모서리 두 곳을 누르게 함 ----
+    let snapWant = false, pickPts = [];
+    const snapEl = $("gridSnap");
+    function showSnap() { snapEl.width = canvas.width; snapEl.height = canvas.height; snapEl.getContext("2d").drawImage(canvas, 0, 0); $("gridPick").hidden = false; pickPts = []; $("gridPickMsg").textContent = "격자 왼쪽 위 모서리(첫 칸의 왼쪽 위)를 누르세요."; }
+    function syncManualUI() { $("btnGridManualOff").hidden = !tracker.manualGeo; }
+    function applyManual(g) { tracker.setManualGeo(g); tracker.reset(); lastSig = ""; syncManualUI(); render(); }
+    $("btnGridManual").onclick = () => { if (!running) { info("먼저 화면 공유를 켜고 상인 화물창을 여세요."); return; } snapWant = true; info("화면을 가져오는 중…"); };
+    $("btnGridPickCancel").onclick = () => { $("gridPick").hidden = true; pickPts = []; };
+    $("btnGridManualOff").onclick = () => { applyManual(null); try { localStorage.removeItem("mh_gridManual"); } catch (e) {} info("직접 지정을 해제했습니다. 다시 자동으로 격자를 찾습니다."); };
+    snapEl.addEventListener("click", e => {
+      const r = snapEl.getBoundingClientRect(), x = (e.clientX - r.left) * snapEl.width / r.width, y = (e.clientY - r.top) * snapEl.height / r.height;
+      pickPts.push([x, y]); const c2 = snapEl.getContext("2d"); c2.fillStyle = "#ffd84a"; c2.fillRect(x - 3, y - 3, 6, 6);
+      if (pickPts.length === 1) { $("gridPickMsg").textContent = "이제 격자 오른쪽 아래 모서리(보이는 마지막 줄 마지막 칸의 오른쪽 아래)를 누르세요."; return; }
+      const [[ax, ay], [bx, by]] = pickPts, ncol = Math.max(4, Math.min(20, +$("gridPickCols").value || 9));
+      let g = { x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by), ncol };
+      try { const sd = snapEl.getContext("2d").getImageData(0, 0, snapEl.width, snapEl.height).data, gr = new Uint8Array(snapEl.width * snapEl.height); for (let i = 0; i < gr.length; i++) gr[i] = (sd[i * 4] * 77 + sd[i * 4 + 1] * 150 + sd[i * 4 + 2] * 29) >> 8; if ((g.x1 - g.x0) / ncol >= 10) g = MHGrid.GridTracker.refineManual(gr, snapEl.width, snapEl.height, g); } catch (e) {}
+      if ((g.x1 - g.x0) / ncol < 10 || g.y1 - g.y0 < 20) { pickPts = []; $("gridPickMsg").textContent = "너무 작습니다. 왼쪽 위 모서리부터 다시 누르세요."; return; }
+      $("gridPick").hidden = true; applyManual(g); try { localStorage.setItem("mh_gridManual", JSON.stringify(g)); } catch (e) {}
+      const m = tracker.manualGeo; info(`격자를 직접 지정했습니다: ${ncol}열 × ${Math.round((m.y1 - m.y0) / m.py)}줄 (칸 ${m.p.toFixed(1)}px). 해제하려면 「직접 지정 해제」.`);
+    });
+    try { const g = JSON.parse(localStorage.getItem("mh_gridManual") || "null"); if (g && g.ncol) { tracker.setManualGeo(g); syncManualUI(); } } catch (e) {}
     function fullReset() { checked.clear(); checkLog.length = 0; renderCheckLog(); tracker.reset(); pick = null; size = null; $("gridBox").querySelectorAll("[data-size]").forEach(x => x.classList.remove("sel")); lastSig = ""; render(); info("전체 리셋: 격자 기록·이름표·모은 소리 점수·크기 필터를 모두 비웠습니다."); }
     render();
     return { start, stop, onResult, targetNow, info, tracker, refresh, fullReset, checked, checkLog, setPick: k => { pick = k; refresh(); } };
@@ -528,6 +575,7 @@
     if (r.errors && r.errors.length) console.warn(r.errors);
   });
   applyFilter();
+  syncNoiseUI();
   refreshDevices(false);
   function drawMeter() {
     // dB 눈금(-60~0 dB): 화물 소리는 -45~-35 dB 정도로 작아서 직선 눈금이면 막대가 안 보였음

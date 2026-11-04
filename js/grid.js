@@ -53,6 +53,7 @@
       const covers = compat && cx.start <= hint.gx0 + 4 && cxR >= hR - 4;
       if (seen >= Math.max(3, Math.ceil((hint.ncol + 1) * 0.35)) && !covers) { cx = { start: hint.gx0, p: hint.p, n: hint.ncol }; hinted = true; }
     }
+    if (hint && hint.manual) { cx = { start: hint.gx0, p: hint.p, n: hint.ncol }; hinted = true; } // 직접 지정한 격자: 선이 안 보여도 그 자리 사용
     if (!cx || cx.n < 4) return null;
     const refine = (proj, st, pp, n) => { let bo = 0, bs = -1; for (let o = -4; o <= 4; o++) { let sc = 0; for (let k = 0; k <= n; k++) { const q = Math.round(st + o + k * pp); if (q >= 0 && q < proj.length) sc += proj[q]; } if (sc > bs) { bs = sc; bo = o; } } return st + bo; };
     if (!hinted) cx.start = refine(col, cx.start, cx.p, cx.n);
@@ -82,6 +83,7 @@
       if (r1 <= r0) { let best = -1, bl = 0; for (let r = lo; r < hi; r++) { let k = r; while (k < hi && okRow(k)) k++; if (k - r > bl) { bl = k - r; best = r; } } if (best >= 0) { r0 = best; r1 = best + bl; } }
       else { while (r0 > lo && okRow(r0 - 1)) r0--; while (r1 < hi && okRow(r1)) r1++; }
     }
+    if (hint && hint.manual) { const hn2 = Math.max(2, Math.round((hint.y1 - hint.y0) / hint.py)); cy = { start: hint.y0, p: hint.py, n: hn2 }; r0 = 0; r1 = hn2; }
     if (r1 - r0 < 2) return null;
     const ncol = cx.n, nrow = r1 - r0, py = cy.p, gy0 = cy.start + r0 * cy.p;
     const X = c => Math.round(gx0 + c * p), Y = r => Math.round(gy0 + r * py);
@@ -138,9 +140,26 @@
   class GridTracker {
     constructor() { this.level = 0; this.hintGeo = null; this.geoCand = null; this.reset(); }
     // 확실히 잡은 격자(3프레임 연속 같은 모양). detect 의 다섯째 인자로 넘김
-    hint() { return this.hintGeo; }
+    hint() { return this.manualGeo || this.hintGeo; }
+    // 직접 지정: 처리 좌표(오른쪽 절반, 높이 720)의 격자 왼쪽 위(x0,y0)·오른쪽 아래(x1,y1), 열 수. null 이면 해제
+    // 사용자가 누른 모서리는 몇 px 어긋나기 마련이라, 칸 경계선(밝기 변화)이 가장 잘 맞는 위치로 맞춘다
+    static refineManual(gray, w, h, g) {
+      const col = (x, y0, y1) => { let s = 0; x = Math.round(x); if (x < 1 || x >= w) return 0; for (let y = Math.max(0, y0 | 0); y < Math.min(h, y1); y += 2) { const i = y * w + x; s += Math.abs(gray[i] - gray[i - 1]); } return s; };
+      const row = (y, x0, x1) => { let s = 0; y = Math.round(y); if (y < 1 || y >= h) return 0; for (let x = Math.max(0, x0 | 0); x < Math.min(w, x1); x += 2) { const i = y * w + x; s += Math.abs(gray[i] - gray[i - w]); } return s; };
+      const W = g.x1 - g.x0, H = g.y1 - g.y0; let best = null;
+      for (let sc = 0.96; sc <= 1.0401; sc += 0.005) {
+        const p = W * sc / g.ncol, nrow = Math.max(2, Math.round(H / p)), r = Math.ceil(p * 0.3);
+        for (let dx = -r; dx <= r; dx++) { let sx = 0; for (let k = 0; k <= g.ncol; k++) sx += col(g.x0 + dx + k * p, g.y0, g.y1); sx /= g.ncol + 1;
+          if (!best || sx > best.sx || (best.sc === sc && false)) best = { sx, sc, dx, p }; }
+      }
+      const p = best.p, nrow = Math.max(2, Math.round(H / p)), r = Math.ceil(p * 0.3), x0 = g.x0 + best.dx; let by = 0, bs = -1;
+      for (let dy = -r; dy <= r; dy++) { let s = 0; for (let k = 0; k <= nrow; k++) s += row(g.y0 + dy + k * p, x0, x0 + p * g.ncol); if (s > bs) { bs = s; by = dy; } }
+      return { x0, y0: g.y0 + by, x1: x0 + p * g.ncol, y1: g.y0 + by + p * nrow, ncol: g.ncol };
+    }
+    setManualGeo(g) { if (!g) { this.manualGeo = null; this.hintGeo = null; this.geoCand = null; return null; } const p = (g.x1 - g.x0) / g.ncol, nrow = Math.max(2, Math.round((g.y1 - g.y0) / p)), py = (g.y1 - g.y0) / nrow; this.manualGeo = { ok: true, manual: true, gx0: g.x0, p, py, ncol: g.ncol, y0: g.y0, y1: g.y1, gy0: g.y0, n: 99 }; this.hintGeo = this.manualGeo; return this.manualGeo; }
     geoFit(a, b) { return Math.abs(a.p - b.p) < 1.5 && Math.abs(a.gx0 - b.gx0) < 3 && a.ncol === b.ncol && Math.abs(a.y0 - b.y0) < 5 && Math.abs(a.y1 - b.y1) < 5; }
     updateGeo(det) {
+      if (this.manualGeo) { this.hintGeo = this.manualGeo; return; }
       if (det.hinted) { if (this.hintGeo) this.hintGeo.gy0 = det.gy0 + 0; return; }
       const g = { gx0: det.gx0, p: det.p, py: det.py, ncol: det.ncol, y0: det.gy0, y1: det.gy0 + det.nrow * det.py, gy0: det.gy0, n: 1 };
       const c = this.geoCand; if (c && this.geoFit(c, g)) { c.n++; c.gy0 = g.gy0; } else this.geoCand = g;

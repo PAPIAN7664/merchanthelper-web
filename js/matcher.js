@@ -10,6 +10,7 @@ function MH_FACTORY() {
   const MIN_SIMILARITY = 0.88, AMBIGUITY_MARGIN = 0.045, MIN_PEAK_RMS = 0.0004, MAX_CANDIDATES = 5;
   const NOISE_OVER_SUBTRACTION = 1.35, FILTERED_MIN_SIMILARITY = 0.85;
   const ADAPTIVE_NOISE_FLOOR = 0.002, ADAPTIVE_FILTERED_MIN_SIMILARITY = 0.82, ADAPTIVE_MIN_MARGIN = 0.1;
+  const LEARNED_NOISE_SUBTRACTION = 1.2, LEARNED_MIN_SIMILARITY = 0.8, LEARNED_MIN_MARGIN = 0.06, LEARNED_SKIP_SCORE = 85;
   const GENTLE_NOISE_SUBTRACTION = 0.5, GENTLE_FILTERED_MIN_SIMILARITY = 0.78, GENTLE_MIN_MARGIN = 0.075;
   const MIXED_WAVEFORM_MIN_CORRELATION = 0.12, MIXED_WAVEFORM_MIN_MARGIN = 0.05, MIXED_WAVEFORM_FFT_SIZE = 65536;
   // scipy.signal.butter(2, 1000, fs=16000, btype="highpass", output="sos")
@@ -116,7 +117,7 @@ function MH_FACTORY() {
   const WINDOW = (() => { const w = new Float64Array(FFT_SIZE); for (let i = 0; i < FFT_SIZE; i++) w[i] = Math.fround(0.5 - 0.5 * Math.cos(2 * Math.PI * i / (FFT_SIZE - 1))); return w; })();
 
   // ---------------- extract / trim / scan ----------------
-  function extract(x, reduceBackground, noiseStrength) {
+  function extract(x, reduceBackground, noiseStrength, extProfile) {
     const n = x.length, count = Math.max(1, Math.floor((n + HOP - 1) / HOP) + 1);
     const rawRms = new Float32Array(count), bandPower = new Float64Array(count * BANDS), spectra = new Float32Array(count * BANDS);
     const re = new Float64Array(FFT_SIZE), im = new Float64Array(FFT_SIZE);
@@ -137,6 +138,7 @@ function MH_FACTORY() {
       for (let f = 0; f < count; f++) rms[f] = Math.sqrt(Math.max(rawRms[f] * rawRms[f] - noiseRms * noiseRms, 0));
       const profile = new Float64Array(BANDS);
       if (quietIdx.length) for (let b = 0; b < BANDS; b++) profile[b] = median(quietIdx.map(f => bandPower[f * BANDS + b]));
+      if (extProfile) for (let b = 0; b < BANDS; b++) profile[b] = Math.max(profile[b], extProfile[b] || 0); // 학습한 주변 소음(대역별)
       const strength = noiseStrength == null ? NOISE_OVER_SUBTRACTION : Math.max(0, noiseStrength);
       for (let f = 0; f < count; f++) for (let b = 0; b < BANDS; b++) { const i = f * BANDS + b; bandPower[i] = Math.max(bandPower[i] - strength * profile[b], bandPower[i] * 0.025); }
     }
@@ -150,6 +152,17 @@ function MH_FACTORY() {
     }
     let peak = 0; for (let f = 0; f < count; f++) if (rms[f] > peak) peak = rms[f];
     return { rms, spectrum: spectra, peakRms: peak, startFrame: 0 };
+  }
+
+  // 주변 소음 학습: 프레임별 대역 전력의 중앙값(=대역별 소음 크기)
+  function bandProfile(x) {
+    const n = x.length, count = Math.max(1, Math.floor(n / HOP)), re = new Float64Array(FFT_SIZE), im = new Float64Array(FFT_SIZE), cols = [];
+    for (let b = 0; b < BANDS; b++) cols.push(new Float64Array(count));
+    for (let f = 0; f < count; f++) { const start = f * HOP - FFT_SIZE / 2;
+      for (let i = 0; i < FFT_SIZE; i++) { const j = start + i; const v = (j >= 0 && j < n) ? x[j] : 0; re[i] = Math.fround(v * WINDOW[i]); im[i] = 0; }
+      fft(re, im, false);
+      for (let b = 0; b < BANDS; b++) { const { s, w } = BANK[b]; let acc = 0; for (let k = 0; k < w.length; k++) { const kk = s + k; acc += w[k] * Math.fround(re[kk] * re[kk] + im[kk] * im[kk]); } cols[b][f] = acc; } }
+    const prof = new Float64Array(BANDS); for (let b = 0; b < BANDS; b++) prof[b] = quantile(cols[b], 0.6); return prof;
   }
 
   function trimReference(f) {
@@ -298,7 +311,31 @@ function MH_FACTORY() {
       return [...best.values()].sort((a, b) => b.score - a.score);
     }
     // 원본 match() — 이유 문자열은 한국어로 옮김
-    match(samples, sr, limit = MAX_CANDIDATES, backgroundRms = 0) {
+    // 주변 소음 몇 초(캡처 sr)를 받아 대역별 소음 프로필 생성 → match(..., noise) 에 넘김
+    noiseProfile(samples, sr) {
+      const x = sr !== SAMPLE_RATE ? resamplePoly(samples, sr, SAMPLE_RATE) : Float32Array.from(samples);
+      if (x.length < FFT_SIZE * 4) return null;
+      let s2 = 0; for (const v of x) s2 += v * v;
+      return { raw: Array.from(bandProfile(x)), hp: Array.from(bandProfile(highpass(x))), rms: Math.sqrt(s2 / x.length) };
+    }
+    match(samples, sr, limit = MAX_CANDIDATES, backgroundRms = 0, noise = null) {
+      const base = this.matchBase(samples, sr, limit, backgroundRms);
+      if (!noise || !noise.hp || (base.length && base[0].score >= LEARNED_SKIP_SCORE)) return base;
+      const reason0 = this.lastReason;
+      // 기본 경로가 실패했을 때만: 학습 소음을 대역별로 빼고(저역 차단 포함) 다시 비교 → 조용한 환경 결과는 그대로
+      const x = sr !== SAMPLE_RATE ? resamplePoly(samples, sr, SAMPLE_RATE) : Float32Array.from(samples);
+      if (x.length < 640 || x.length > 48000) return base;
+      const lim2 = Math.max(2, limit), hp = highpass(x);
+      const inp = extract(hp, true, LEARNED_NOISE_SUBTRACTION, noise.hp);
+      if (inp.peakRms < MIN_PEAK_RMS * 0.5) return base;
+      const ranked = this.rank(inp, 0, true).slice(0, lim2);
+      if (ranked.length) { const sc = ranked[0].score, mg = ranked.length > 1 ? sc - ranked[1].score : 1;
+        if (sc >= LEARNED_MIN_SIMILARITY && mg >= LEARNED_MIN_MARGIN && (!base.length || Math.trunc(sc * 100) > base[0].score)) {
+          this.lastReason = "학습한 주변 소음을 빼고 소리 그룹을 찾았습니다. 유사도는 출현 확률이 아닙니다.";
+          return ranked.slice(0, limit).map(row => this.rowOut(row)); } }
+      this.lastReason = reason0; return base;
+    }
+    matchBase(samples, sr, limit = MAX_CANDIDATES, backgroundRms = 0) {
       let x = sr !== SAMPLE_RATE ? resamplePoly(samples, sr, SAMPLE_RATE) : Float32Array.from(samples);
       if (x.length < 128) { this.lastReason = "오디오 구간이 너무 짧습니다."; return []; }
       if (x.length > 192000) { this.lastReason = "오디오는 12초 이하 구간으로 나눠 주세요."; return []; }

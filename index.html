@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>행상 도우미 웹 (MerchantHelper 웹 포트)</title>
-<link rel="stylesheet" href="css/style.css?v=17">
+<link rel="stylesheet" href="css/style.css?v=18">
 </head>
 <body>
 <header>
@@ -47,6 +47,7 @@
     <span>샘플레이트: <b id="srcRate">-</b></span>
     <div class="meter"><div id="meterBar"></div><div class="thrLine"></div></div>
     <span class="sensctl small">감도 <button class="sensDn" title="덜 민감하게">−</button><b class="sensVal">4</b><button class="sensUp" title="더 민감하게">+</button> 증폭 <button class="gainDn">−</button><b class="gainVal">×1</b><button class="gainUp">+</button></span>
+    <span class="noisectl small"><button class="noiseLearn" title="화물을 건드리지 말고 3초 동안 주변 소리만 들려 주세요. 바람·환경음을 빼고 인식합니다.">주변 소음 학습 (3초)</button> <b class="noiseState">소음 학습 안 함</b> <button class="noiseClear" hidden>학습 지우기</button></span>
     <span>배경 <b id="bgVal">-</b></span>
   </div>
 </section>
@@ -88,6 +89,7 @@
     <button id="btnNow" disabled>지금 인식</button>
     <button id="btnPip">작은 창으로 띄우기 (항상 위)</button>
   </div>
+  <div class="small muted">작은 창은 선택 사항입니다. 듀얼 모니터라면 이 페이지를 다른 모니터에 띄워 두고 그대로 써도 똑같이 인식합니다.</div>
   <div class="row small">
     <label><input type="checkbox" id="optAutoTrigger" checked> 효과음 자동 감지로 인식 시작 (원본 <code>--trigger audio</code>)</label>
     <label><input type="checkbox" id="optWeak"> 기준 미달이어도 가장 비슷한 후보 표시 (원본 <code>--show-weak</code>)</label>
@@ -110,6 +112,7 @@
     <span id="miniState" class="small">대기</span>
     <div class="meter"><div id="miniMeterBar"></div><div class="thrLine"></div></div>
     <span class="sensctl small">감도 <button class="sensDn" title="덜 민감하게">−</button><b class="sensVal">4</b><button class="sensUp" title="더 민감하게">+</button> 증폭 <button class="gainDn">−</button><b class="gainVal">×1</b><button class="gainUp">+</button></span>
+    <span class="noisectl small"><button class="noiseLearn" title="화물을 건드리지 말고 3초 동안 주변 소리만 들려 주세요. 바람·환경음을 빼고 인식합니다.">주변 소음 학습 (3초)</button> <b class="noiseState">소음 학습 안 함</b> <button class="noiseClear" hidden>학습 지우기</button></span>
     <span id="miniLevel" class="small muted">소리 소스 없음</span>
   </div>
   <div class="row filters">
@@ -129,8 +132,13 @@
       <span class="muted">칸 크기 지정:</span>
       <button data-size="1x1">1×1</button><button data-size="1x2">1×2</button><button data-size="2x1">2×1</button><button data-size="2x2">2×2</button><button data-size="2x3">2×3</button><button data-size="3x2">3×2</button><button data-size="del">지우기</button>
       <button id="btnGridReset">격자 초기화</button>
+      <button id="btnGridManual" title="자동 인식이 안 될 때: 화면에서 격자 왼쪽 위 모서리와 오른쪽 아래 모서리를 차례로 누르세요">격자 직접 지정</button> <button id="btnGridManualOff" hidden>직접 지정 해제</button>
     </div>
     <div id="cargoBar" class="small cargobar" hidden><span id="cargoBarText"></span> <button id="btnCargoReset">이 화물 리셋</button></div>
+    <div id="gridPick" class="small gridpick" hidden>
+      <div><b id="gridPickMsg">격자 왼쪽 위 모서리(첫 칸의 왼쪽 위)를 누르세요.</b> 열 수 <input id="gridPickCols" type="number" min="4" max="20" value="9" style="width:3.5em"> <button id="btnGridPickCancel">취소</button></div>
+      <canvas id="gridSnap" style="max-width:100%;cursor:crosshair;border:1px solid #555"></canvas>
+    </div>
     <div id="gridMap" class="gridmap"></div>
     <div id="gridLegend" class="small muted">색: <b style="color:#d4af37">금색</b> · <b style="color:#d9534f">빨강</b> · <b style="color:#a06cd5">보라</b> · 빨간 테두리 = 빨강 가능 · 100% = 확정 · ✓ = 드래그로 확정 · 노란 테두리 = 지금 마우스/드래그 중인 화물</div>
   </div>
@@ -194,14 +202,15 @@
 </div></div>
 
 
-<script src="js/i18n_dict.js?v=17"></script>
-<script src="js/i18n.js?v=17"></script>
-<script src="js/data.js?v=17"></script>
-<script src="js/names_ko.js?v=17"></script>
-<script src="js/matcher.js?v=17"></script>
-<script src="js/grid.js?v=17"></script>
-<script src="js/events.js?v=17"></script>
-<script src="js/app.js?v=17"></script>
+<script src="js/i18n_dict.js?v=18"></script>
+<script src="js/i18n.js?v=18"></script>
+<script src="js/data.js?v=18"></script>
+<script src="js/names_ko.js?v=18"></script>
+<script src="js/matcher.js?v=18"></script>
+<script src="js/onset.js?v=18"></script>
+<script src="js/grid.js?v=18"></script>
+<script src="js/events.js?v=18"></script>
+<script src="js/app.js?v=18"></script>
 <script>(function(){var m=document.getElementById("helpModal");document.getElementById("btnHelp").onclick=function(){m.hidden=false};document.getElementById("btnHelpClose").onclick=function(){m.hidden=true};m.addEventListener("click",function(e){if(e.target===m)m.hidden=true});document.addEventListener("keydown",function(e){if(e.key==="Escape")m.hidden=true});})();</script>
 <script>(function(){var b=document.getElementById("vwBody"),t=document.getElementById("btnWarnToggle");function set(c){b.hidden=c;t.textContent=c?"펼치기":"접기";try{localStorage.setItem("mh_warnCollapsed",c?"1":"0")}catch(e){}}set(localStorage.getItem("mh_warnCollapsed")==="1");t.onclick=function(){set(!b.hidden)};
 document.querySelectorAll(".openVoiceHelp").forEach(function(x){x.onclick=function(){document.getElementById("helpModal").hidden=false;var d=document.getElementById("helpVoice");d.open=true;d.scrollIntoView({block:"start"})}});})();</script>
